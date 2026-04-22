@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
@@ -11,16 +11,20 @@ export const LoginPage = () => {
   const {
     login,
     loginWithGoogle,
-    sendPhoneOtp,
-    verifyPhoneOtp,
     loading,
-    phoneConfirmation,
-    isFirebaseConfigured
+    isFirebaseConfigured,
+    isAuthenticated,
+    user,
+    bootstrapping
   } = useAuth();
   const [form, setForm] = useState({ email: "", password: "" });
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!bootstrapping && isAuthenticated && user) {
+      navigate(user.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+    }
+  }, [bootstrapping, isAuthenticated, navigate, user]);
 
   const onSubmit = async (event) => {
     event.preventDefault();
@@ -38,34 +42,9 @@ export const LoginPage = () => {
     setError("");
 
     try {
-      const data = await loginWithGoogle("user");
-
-      if (data) {
-        navigate(data.role === "admin" ? "/admin" : "/dashboard");
-      }
+      await loginWithGoogle("user");
     } catch (requestError) {
       setError(getRequestErrorMessage(requestError, requestError.message || "Unable to sign in with Google"));
-    }
-  };
-
-  const onSendPhoneOtp = async () => {
-    setError("");
-
-    try {
-      await sendPhoneOtp(phoneNumber);
-    } catch (requestError) {
-      setError(getRequestErrorMessage(requestError, requestError.message || "Unable to send OTP"));
-    }
-  };
-
-  const onVerifyPhoneOtp = async () => {
-    setError("");
-
-    try {
-      const data = await verifyPhoneOtp(otp, "user");
-      navigate(data.role === "admin" ? "/admin" : "/dashboard");
-    } catch (requestError) {
-      setError(getRequestErrorMessage(requestError, requestError.message || "Unable to verify OTP"));
     }
   };
 
@@ -74,7 +53,7 @@ export const LoginPage = () => {
       <p className="section-kicker">Login</p>
       <h2 className="mt-5 text-3xl font-semibold text-white">Welcome back</h2>
       <p className="mt-3 text-sm leading-6 text-muted">
-        Sign in with email, Google, or phone number and continue directly into the exam workspace.
+        Sign in with email or Google and continue directly into the exam workspace.
       </p>
 
       <form className="mt-8 space-y-4" onSubmit={onSubmit}>
@@ -102,40 +81,13 @@ export const LoginPage = () => {
         <>
           <div className="my-6 glass-divider" />
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             <Button variant="secondary" className="w-full" onClick={onGoogleLogin} disabled={loading}>
               Continue with Google
             </Button>
-
-            <div className="rounded-[28px] border border-white/8 bg-white/[0.03] p-4">
-              <h3 className="text-sm font-semibold text-white">Phone Login</h3>
-              <div className="mt-4 space-y-3">
-                <Input
-                  label="Phone Number"
-                  placeholder="+91xxxxxxxxxx"
-                  value={phoneNumber}
-                  onChange={(event) => setPhoneNumber(event.target.value)}
-                />
-                {!phoneConfirmation ? (
-                  <Button variant="secondary" className="w-full" onClick={onSendPhoneOtp} disabled={loading}>
-                    Send OTP
-                  </Button>
-                ) : (
-                  <>
-                    <Input
-                      label="OTP Code"
-                      placeholder="Enter 6-digit code"
-                      value={otp}
-                      onChange={(event) => setOtp(event.target.value)}
-                    />
-                    <Button variant="secondary" className="w-full" onClick={onVerifyPhoneOtp} disabled={loading}>
-                      Verify OTP
-                    </Button>
-                  </>
-                )}
-                <div id="phone-recaptcha" />
-              </div>
-            </div>
+            <p className="text-sm text-muted">
+              Google sign-in returns here once, then automatically sends you to your dashboard.
+            </p>
           </div>
         </>
       ) : null}

@@ -6,10 +6,6 @@ const AuthContext = createContext(null);
 
 const storageKey = "exam-platform-auth";
 const firebaseRoleKey = "exam-platform-firebase-role";
-const phoneRecaptchaState = {
-  containerId: "",
-  verifier: null
-};
 
 const persistAuth = (value) => {
   if (value) {
@@ -35,33 +31,10 @@ const exchangeFirebaseSession = async (firebaseUser, role = "user") => {
   return data;
 };
 
-const clearRecaptchaContainer = (containerId) => {
-  const element = document.getElementById(containerId);
-
-  if (element) {
-    element.innerHTML = "";
-  }
-};
-
-const resetPhoneRecaptcha = () => {
-  if (phoneRecaptchaState.verifier) {
-    phoneRecaptchaState.verifier.clear();
-  }
-
-  if (phoneRecaptchaState.containerId) {
-    clearRecaptchaContainer(phoneRecaptchaState.containerId);
-  }
-
-  phoneRecaptchaState.containerId = "";
-  phoneRecaptchaState.verifier = null;
-  window.recaptchaVerifier = null;
-};
-
 export const AuthProvider = ({ children }) => {
   const [auth, setAuth] = useState(normalizeStoredAuth);
   const [loading, setLoading] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
-  const [phoneConfirmation, setPhoneConfirmation] = useState(null);
 
   useEffect(() => {
     persistAuth(auth);
@@ -166,66 +139,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const sendPhoneOtp = async (phoneNumber, containerId = "phone-recaptcha") => {
-    if (!isFirebaseConfigured) {
-      throw new Error("Firebase authentication is not configured");
-    }
-
-    setLoading(true);
-
-    try {
-      const firebaseRuntime = await loadFirebaseAuthRuntime();
-
-      if (!firebaseRuntime) {
-        throw new Error("Firebase authentication is not configured");
-      }
-
-      if (!phoneNumber?.trim()) {
-        throw new Error("Enter a valid phone number with country code like +919876543210");
-      }
-
-      if (!phoneRecaptchaState.verifier || phoneRecaptchaState.containerId !== containerId) {
-        resetPhoneRecaptcha();
-        clearRecaptchaContainer(containerId);
-
-        phoneRecaptchaState.verifier = new firebaseRuntime.RecaptchaVerifier(firebaseRuntime.auth, containerId, {
-          size: "invisible"
-        });
-        phoneRecaptchaState.containerId = containerId;
-        window.recaptchaVerifier = phoneRecaptchaState.verifier;
-      }
-
-      const confirmation = await firebaseRuntime.signInWithPhoneNumber(
-        firebaseRuntime.auth,
-        phoneNumber.trim(),
-        phoneRecaptchaState.verifier
-      );
-      setPhoneConfirmation(confirmation);
-      return confirmation;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const verifyPhoneOtp = async (code, role = "user") => {
-    if (!phoneConfirmation) {
-      throw new Error("Request an OTP before verifying");
-    }
-
-    setLoading(true);
-
-    try {
-      const credentialResult = await phoneConfirmation.confirm(code);
-      const data = await exchangeFirebaseSession(credentialResult.user, role);
-      setAuth(data);
-      setPhoneConfirmation(null);
-      resetPhoneRecaptcha();
-      return data;
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const logout = async () => {
     if (isFirebaseConfigured) {
       const firebaseRuntime = await loadFirebaseAuthRuntime().catch(() => null);
@@ -235,8 +148,6 @@ export const AuthProvider = ({ children }) => {
       }
     }
 
-    setPhoneConfirmation(null);
-    resetPhoneRecaptcha();
     setAuth(null);
   };
 
@@ -248,13 +159,10 @@ export const AuthProvider = ({ children }) => {
         isAuthenticated: Boolean(auth?.token),
         loading,
         bootstrapping,
-        phoneConfirmation,
         isFirebaseConfigured,
         login,
         register,
         loginWithGoogle,
-        sendPhoneOtp,
-        verifyPhoneOtp,
         logout
       }}
     >
