@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../../api/axios";
 import { Card } from "../../components/ui/Card";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Loader } from "../../components/ui/Loader";
+import { Button } from "../../components/ui/Button";
 
 export const AdminResultsPage = () => {
   const [results, setResults] = useState([]);
@@ -109,6 +111,14 @@ export const AdminResultsPage = () => {
                       </p>
                     </div>
                   </div>
+
+                  <div className="mt-4">
+                    <Link to={`/results/${result._id}`} className="block">
+                      <Button variant="secondary" className="w-full">
+                        Open Analyzer
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
               ))}
             </div>
@@ -127,6 +137,7 @@ export const AdminResultsPage = () => {
                     <th>Tab Switches</th>
                     <th>FS Enter</th>
                     <th>FS Exit</th>
+                    <th>Analyzer</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -141,7 +152,12 @@ export const AdminResultsPage = () => {
                       <td className="px-4 py-4">{result.percentage}%</td>
                       <td className="px-4 py-4">{result.tabSwitchCount}</td>
                       <td className="px-4 py-4">{result.fullscreenEnterCount ?? 0}</td>
-                      <td className="rounded-r-[24px] px-4 py-4">{result.fullscreenExitCount ?? 0}</td>
+                      <td className="px-4 py-4">{result.fullscreenExitCount ?? 0}</td>
+                      <td className="rounded-r-[24px] px-4 py-4">
+                        <Link to={`/results/${result._id}`}>
+                          <Button variant="secondary">Open</Button>
+                        </Link>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -15,7 +15,9 @@ export const LoginPage = () => {
     isFirebaseConfigured,
     isAuthenticated,
     user,
-    bootstrapping
+    bootstrapping,
+    firebaseRedirectError,
+    clearFirebaseRedirectError
   } = useAuth();
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
@@ -25,6 +27,13 @@ export const LoginPage = () => {
       navigate(user.role === "admin" ? "/admin" : "/dashboard", { replace: true });
     }
   }, [bootstrapping, isAuthenticated, navigate, user]);
+
+  useEffect(() => {
+    if (firebaseRedirectError) {
+      setError(firebaseRedirectError);
+      clearFirebaseRedirectError();
+    }
+  }, [clearFirebaseRedirectError, firebaseRedirectError]);
 
   const onSubmit = async (event) => {
     event.preventDefault();

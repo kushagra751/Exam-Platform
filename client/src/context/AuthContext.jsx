@@ -6,6 +6,7 @@ const AuthContext = createContext(null);
 
 const storageKey = "exam-platform-auth";
 const firebaseRoleKey = "exam-platform-firebase-role";
+const firebaseRedirectErrorKey = "exam-platform-firebase-redirect-error";
 
 const persistAuth = (value) => {
   if (value) {
@@ -35,6 +36,9 @@ export const AuthProvider = ({ children }) => {
   const [auth, setAuth] = useState(normalizeStoredAuth);
   const [loading, setLoading] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
+  const [firebaseRedirectError, setFirebaseRedirectError] = useState(
+    () => sessionStorage.getItem(firebaseRedirectErrorKey) || ""
+  );
 
   useEffect(() => {
     persistAuth(auth);
@@ -83,15 +87,25 @@ export const AuthProvider = ({ children }) => {
           const intendedRole = sessionStorage.getItem(firebaseRoleKey) || "user";
           const data = await exchangeFirebaseSession(redirectResult.user, intendedRole);
           sessionStorage.removeItem(firebaseRoleKey);
+          sessionStorage.removeItem(firebaseRedirectErrorKey);
+          setFirebaseRedirectError("");
           setAuth(data);
+          window.location.replace(data.role === "admin" ? "/admin" : "/dashboard");
         }
       } catch (error) {
-        // Redirect auth failures are surfaced later through explicit login actions.
+        const message = error?.response?.data?.message || error?.message || "Unable to continue with Google";
+        sessionStorage.setItem(firebaseRedirectErrorKey, message);
+        setFirebaseRedirectError(message);
       }
     };
 
     syncRedirectResult();
   }, []);
+
+  const clearFirebaseRedirectError = () => {
+    sessionStorage.removeItem(firebaseRedirectErrorKey);
+    setFirebaseRedirectError("");
+  };
 
   const login = async (payload) => {
     setLoading(true);
@@ -160,6 +174,8 @@ export const AuthProvider = ({ children }) => {
         loading,
         bootstrapping,
         isFirebaseConfigured,
+        firebaseRedirectError,
+        clearFirebaseRedirectError,
         login,
         register,
         loginWithGoogle,

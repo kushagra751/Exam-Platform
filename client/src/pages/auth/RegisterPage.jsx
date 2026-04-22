@@ -15,7 +15,9 @@ export const RegisterPage = () => {
     isFirebaseConfigured,
     isAuthenticated,
     user,
-    bootstrapping
+    bootstrapping,
+    firebaseRedirectError,
+    clearFirebaseRedirectError
   } = useAuth();
   const [form, setForm] = useState({
     name: "",
@@ -30,6 +32,13 @@ export const RegisterPage = () => {
       navigate(user.role === "admin" ? "/admin" : "/dashboard", { replace: true });
     }
   }, [bootstrapping, isAuthenticated, navigate, user]);
+
+  useEffect(() => {
+    if (firebaseRedirectError) {
+      setError(firebaseRedirectError);
+      clearFirebaseRedirectError();
+    }
+  }, [clearFirebaseRedirectError, firebaseRedirectError]);
 
   const onSubmit = async (event) => {
     event.preventDefault();

@@ -88,6 +88,83 @@ export const ResultDetailPage = () => {
         ) : null}
       </Card>
 
+      {result.analyzer ? (
+        <Card className="rounded-[28px] p-5">
+          <p className="section-kicker">Exam Analyzer</p>
+          <h2 className="mt-4 text-2xl font-semibold text-white">Performance breakdown</h2>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { label: "Accuracy", value: `${result.analyzer.accuracy}%` },
+              { label: "Attempt Rate", value: `${result.analyzer.attemptedRate}%` },
+              { label: "Skip Rate", value: `${result.analyzer.skipRate}%` },
+              { label: "Avg Time / Q", value: `${result.analyzer.avgSecondsPerQuestion}s` }
+            ].map((item) => (
+              <div key={item.label} className="metric-tile">
+                <p className="text-sm text-muted">{item.label}</p>
+                <h3 className="mt-2 text-2xl font-semibold text-white">{item.value}</h3>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 grid gap-4 lg:grid-cols-3">
+            <div className="metric-tile">
+              <p className="text-xs uppercase tracking-[0.25em] text-muted">Strong Sections</p>
+              <div className="mt-3 space-y-2 text-sm text-white">
+                {result.analyzer.strongestSections.length ? (
+                  result.analyzer.strongestSections.map((section) => (
+                    <p key={section.title}>
+                      {section.title}: {section.score} ({section.status})
+                    </p>
+                  ))
+                ) : (
+                  <p className="text-muted">No section data available</p>
+                )}
+              </div>
+            </div>
+
+            <div className="metric-tile">
+              <p className="text-xs uppercase tracking-[0.25em] text-muted">Needs Improvement</p>
+              <div className="mt-3 space-y-2 text-sm text-white">
+                {result.analyzer.weakestSections.length ? (
+                  result.analyzer.weakestSections.map((section) => (
+                    <p key={section.title}>
+                      {section.title}: {section.score} ({section.status})
+                    </p>
+                  ))
+                ) : (
+                  <p className="text-muted">No weak section detected</p>
+                )}
+              </div>
+            </div>
+
+            <div className="metric-tile">
+              <p className="text-xs uppercase tracking-[0.25em] text-muted">Revisit Questions</p>
+              <div className="mt-3 space-y-2 text-sm text-white">
+                {result.analyzer.reviewQuestionNumbers.length ? (
+                  result.analyzer.reviewQuestionNumbers.map((item) => (
+                    <p key={item.questionNumber}>
+                      Q{item.questionNumber} in {item.section}
+                    </p>
+                  ))
+                ) : (
+                  <p className="text-muted">No risky wrong answers in this attempt</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-[24px] border border-white/8 bg-white/[0.03] p-4">
+            <p className="text-xs uppercase tracking-[0.25em] text-muted">Recommendations</p>
+            <div className="mt-3 space-y-2 text-sm leading-6 text-neutral-200">
+              {result.analyzer.recommendations.map((item) => (
+                <p key={item}>{item}</p>
+              ))}
+            </div>
+          </div>
+        </Card>
+      ) : null}
+
       {result.detailedAnswers.map((answer, index) => {
         const selectedIds = answer.selectedOptionIds.map((id) => id.toString());
         const correctIds = answer.correctOptionIds.map((id) => id.toString());

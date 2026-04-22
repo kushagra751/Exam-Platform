@@ -2,6 +2,86 @@ import Result from "../models/Result.js";
 import Exam from "../models/Exam.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 
+const buildResultAnalyzer = (result, exam, detailedAnswers) => {
+  const totalQuestions = detailedAnswers.length;
+  const answeredCount = result.correctCount + result.incorrectCount;
+  const attemptedRate = totalQuestions ? Number(((answeredCount / totalQuestions) * 100).toFixed(2)) : 0;
+  const accuracy = answeredCount ? Number(((result.correctCount / answeredCount) * 100).toFixed(2)) : 0;
+  const skipRate = totalQuestions ? Number(((result.unansweredCount / totalQuestions) * 100).toFixed(2)) : 0;
+  const scoreEfficiency = exam.totalMarks ? Number(((result.score / exam.totalMarks) * 100).toFixed(2)) : 0;
+  const durationMinutes = Math.max(
+    0,
+    Number((((new Date(result.submittedAt || result.updatedAt)).getTime() - new Date(result.startedAt).getTime()) / 60000).toFixed(2))
+  );
+  const avgSecondsPerQuestion = totalQuestions ? Number(((durationMinutes * 60) / totalQuestions).toFixed(2)) : 0;
+
+  const strongestSections = [...(result.sectionScores || [])]
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 2)
+    .map((section) => ({
+      title: section.title,
+      score: section.score,
+      cutoffMarks: section.cutoffMarks,
+      status: section.passedCutoff ? "Passed cutoff" : "Below cutoff"
+    }));
+
+  const weakestSections = [...(result.sectionScores || [])]
+    .sort((left, right) => left.score - right.score)
+    .slice(0, 2)
+    .map((section) => ({
+      title: section.title,
+      score: section.score,
+      cutoffMarks: section.cutoffMarks,
+      status: section.passedCutoff ? "Passed cutoff" : "Below cutoff"
+    }));
+
+  const reviewQuestionNumbers = detailedAnswers
+    .map((answer, index) => ({ index, answer }))
+    .filter(({ answer }) => !answer.isSkipped && !answer.isCorrect && answer.selectedOptionIds.length > 0)
+    .slice(0, 5)
+    .map(({ index, answer }) => ({
+      questionNumber: index + 1,
+      marksImpact: answer.obtainedMarks,
+      section: answer.section || "General"
+    }));
+
+  const recommendations = [];
+
+  if (accuracy < 60) {
+    recommendations.push("Accuracy is low right now. Slow down on uncertain questions and reduce risky guesses.");
+  }
+
+  if (skipRate > 25) {
+    recommendations.push("A high number of questions were skipped or left unanswered. Try a first-pass strategy for easier marks.");
+  }
+
+  if (result.tabSwitchCount > 0 || result.fullscreenExitCount > 0) {
+    recommendations.push("Focus discipline dropped during the exam. Stay on one screen to avoid interruptions and lost momentum.");
+  }
+
+  if ((result.sectionScores || []).some((section) => !section.passedCutoff)) {
+    recommendations.push("At least one section missed its cutoff. Prioritize those sections before your next attempt.");
+  }
+
+  if (!recommendations.length) {
+    recommendations.push("This was a steady attempt. Focus next on improving accuracy and speed together for a higher final score.");
+  }
+
+  return {
+    totalQuestions,
+    attemptedRate,
+    accuracy,
+    skipRate,
+    scoreEfficiency,
+    durationMinutes,
+    avgSecondsPerQuestion,
+    strongestSections,
+    weakestSections,
+    reviewQuestionNumbers,
+    recommendations
+  };
+};
+
 export const getMyResults = asyncHandler(async (req, res) => {
   const results = await Result.find({ user: req.user._id, isSubmitted: true })
     .populate("exam", "title duration totalMarks negativeMarking maxAttempts")
@@ -35,6 +115,7 @@ export const getResultById = asyncHandler(async (req, res) => {
 
     return {
       questionId: question._id,
+      section: question.section || "General",
       prompt: question.prompt,
       type: question.type,
       marks: question.marks,
@@ -51,7 +132,8 @@ export const getResultById = asyncHandler(async (req, res) => {
 
   res.json({
     ...result.toObject(),
-    detailedAnswers
+    detailedAnswers,
+    analyzer: buildResultAnalyzer(result, exam, detailedAnswers)
   });
 });
 
