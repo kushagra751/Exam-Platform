@@ -17,20 +17,11 @@ const createOption = (text = "") => ({
   text
 });
 
-const createSection = (title = "General", duration = 60, cutoffMarks = 0) => ({
-  _id: createId(),
-  title,
-  duration,
-  cutoffMarks
-});
-
 const createQuestion = () => ({
   prompt: "",
-  section: "General",
   type: "single",
   marks: 1,
   explanation: "",
-  enableSkipOption: true,
   options: [createOption(""), createOption(""), createOption(""), createOption("")],
   correctOptionIds: []
 });
@@ -56,7 +47,6 @@ const createInitialExamForm = () => ({
   lockedUntil: "",
   startTime: "",
   endTime: "",
-  sections: [createSection()],
   questions: [createQuestion()]
 });
 
@@ -93,22 +83,16 @@ export const AdminExamsPage = () => {
   const [importError, setImportError] = useState("");
 
   const isEditing = useMemo(() => Boolean(editingId), [editingId]);
-  const sectionTitles = useMemo(
-    () => form.sections.map((section) => section.title.trim()).filter(Boolean),
-    [form.sections]
-  );
   const builderStats = useMemo(() => {
     const readyQuestions = form.questions.filter((question) => question.prompt.trim()).length;
     const configuredMarks = form.questions.reduce((total, question) => total + Number(question.marks || 0), 0);
-    const totalSectionMinutes = form.sections.reduce((total, section) => total + Number(section.duration || 0), 0);
 
     return [
       { label: "Questions", value: form.questions.length },
       { label: "Ready", value: readyQuestions },
-      { label: "Question Marks", value: configuredMarks },
-      { label: "Section Minutes", value: totalSectionMinutes }
+      { label: "Question Marks", value: configuredMarks }
     ];
-  }, [form.questions, form.sections]);
+  }, [form.questions]);
 
   const filteredExams = useMemo(() => {
     const query = filter.trim().toLowerCase();
@@ -151,32 +135,13 @@ export const AdminExamsPage = () => {
     }));
   };
 
-  const onSectionChange = (index, key, value) => {
-    setForm((prev) => ({
-      ...prev,
-      sections: prev.sections.map((section, idx) => (idx === index ? { ...section, [key]: value } : section))
-    }));
-  };
-
   const applyImportedQuestions = (questions) => {
     setForm((prev) => ({
       ...prev,
       questions:
-        importMode === "replace" ||
-        (prev.questions.length === 1 && isBlankQuestion(prev.questions[0]))
-          ? questions.map((question) => ({
-              ...question,
-              section: question.section || prev.sections[0]?.title || "General",
-              enableSkipOption: question.enableSkipOption !== false
-            }))
-          : [
-              ...prev.questions,
-              ...questions.map((question) => ({
-                ...question,
-                section: question.section || prev.sections[0]?.title || "General",
-                enableSkipOption: question.enableSkipOption !== false
-              }))
-            ]
+        importMode === "replace" || (prev.questions.length === 1 && isBlankQuestion(prev.questions[0]))
+          ? questions
+          : [...prev.questions, ...questions]
     }));
   };
 
@@ -197,19 +162,8 @@ export const AdminExamsPage = () => {
       lockedUntil: exam.lockedUntil ? new Date(exam.lockedUntil).toISOString().slice(0, 16) : "",
       startTime: new Date(exam.startTime).toISOString().slice(0, 16),
       endTime: new Date(exam.endTime).toISOString().slice(0, 16),
-      sections:
-        exam.sections?.length > 0
-          ? exam.sections.map((section) => ({
-              _id: createId(),
-              title: section.title,
-              duration: section.duration,
-              cutoffMarks: section.cutoffMarks
-            }))
-          : [createSection("General", exam.duration, 0)],
       questions: exam.questions.map((question) => ({
         ...question,
-        section: question.section || "General",
-        enableSkipOption: question.enableSkipOption !== false,
         correctOptionIds: question.correctOptionIds.map((id) => id.toString())
       }))
     });
@@ -235,40 +189,6 @@ export const AdminExamsPage = () => {
     setError("");
 
     try {
-      const trimmedSections = form.sections
-        .map((section) => ({
-          ...section,
-          title: section.title.trim(),
-          duration: Number(section.duration || 0),
-          cutoffMarks: Number(section.cutoffMarks || 0)
-        }))
-        .filter((section) => section.title);
-
-      if (!trimmedSections.length) {
-        throw new Error("Add at least one section before saving the exam.");
-      }
-
-      const sectionMinutes = trimmedSections.reduce((sum, section) => sum + section.duration, 0);
-
-      if (sectionMinutes !== Number(form.duration)) {
-        throw new Error("Section minutes must exactly match the overall exam duration.");
-      }
-
-      const invalidSections = form.questions
-        .map((question, index) => ({
-          index,
-          section: question.section?.trim()
-        }))
-        .filter((item) => !item.section || !trimmedSections.some((section) => section.title === item.section));
-
-      if (invalidSections.length > 0) {
-        throw new Error(
-          `Assign valid sections for question${invalidSections.length > 1 ? "s" : ""} ${invalidSections
-            .map((item) => item.index + 1)
-            .join(", ")}`
-        );
-      }
-
       const missingCorrectAnswers = form.questions
         .map((question, index) => ({
           index,
@@ -286,15 +206,7 @@ export const AdminExamsPage = () => {
 
       const payload = {
         ...form,
-        sections: trimmedSections.map(({ title, duration, cutoffMarks }) => ({
-          title,
-          duration,
-          cutoffMarks
-        })),
-        questions: form.questions.map((question) => ({
-          ...question,
-          section: question.section?.trim() || trimmedSections[0].title
-        })),
+        questions: form.questions,
         lockedUntil: form.lockedUntil ? new Date(form.lockedUntil).toISOString() : "",
         startTime: new Date(form.startTime).toISOString(),
         endTime: new Date(form.endTime).toISOString()
@@ -358,7 +270,7 @@ export const AdminExamsPage = () => {
             <p className="section-kicker">Admin Builder</p>
             <h2 className="mt-5 text-3xl font-semibold text-white">{isEditing ? "Edit Exam" : "Create Exam"}</h2>
             <p className="mt-3 text-sm leading-6 text-muted">
-              Add playlist-style metadata, lock rules, and skip-friendly question settings in one place.
+              Build a simpler exam flow with overall timer, clean metadata, and standard question setup.
             </p>
           </div>
           {isEditing ? (
@@ -368,7 +280,7 @@ export const AdminExamsPage = () => {
           ) : null}
         </div>
 
-        <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-6 grid gap-3 sm:grid-cols-3">
           {builderStats.map((item) => (
             <div key={item.label} className="metric-tile">
               <p className="text-xs uppercase tracking-[0.25em] text-muted">{item.label}</p>
@@ -384,36 +296,12 @@ export const AdminExamsPage = () => {
             <Input label="Subject" value={form.subject} onChange={(event) => setForm((prev) => ({ ...prev, subject: event.target.value }))} placeholder="Reasoning, Physics" />
             <Input label="Topic" value={form.topic} onChange={(event) => setForm((prev) => ({ ...prev, topic: event.target.value }))} placeholder="Algebra, Verbal Ability" />
             <Input label="Playlist / Series" value={form.playlist} onChange={(event) => setForm((prev) => ({ ...prev, playlist: event.target.value }))} placeholder="Mock Set A, Crash Course" />
-            <Input
-              label="Duration (minutes)"
-              type="number"
-              min="1"
-              value={form.duration}
-              onChange={(event) =>
-                setForm((prev) => {
-                  const nextDuration = Number(event.target.value);
-                  const nextSections =
-                    prev.sections.length === 1 && (prev.sections[0].title || "General").trim().toLowerCase() === "general"
-                      ? prev.sections.map((section) => ({ ...section, duration: nextDuration }))
-                      : prev.sections;
-
-                  return {
-                    ...prev,
-                    duration: nextDuration,
-                    sections: nextSections
-                  };
-                })
-              }
-            />
+            <Input label="Duration (minutes)" type="number" min="1" value={form.duration} onChange={(event) => setForm((prev) => ({ ...prev, duration: Number(event.target.value) }))} />
             <Input label="Total Marks" type="number" min="1" value={form.totalMarks} onChange={(event) => setForm((prev) => ({ ...prev, totalMarks: Number(event.target.value) }))} />
             <Input label="Negative Marking" type="text" value={form.negativeMarking} onChange={(event) => setForm((prev) => ({ ...prev, negativeMarking: event.target.value }))} placeholder="0, 0.25, 1/3" />
             <label className="flex flex-col gap-2 text-sm text-muted">
               <span className="font-medium text-neutral-300">Allowed Attempts</span>
-              <select
-                className="min-h-[52px] rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white outline-none transition focus:border-white/25 focus:bg-black/45"
-                value={form.maxAttempts}
-                onChange={(event) => setForm((prev) => ({ ...prev, maxAttempts: event.target.value }))}
-              >
+              <select className="min-h-[52px] rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white outline-none transition focus:border-white/25 focus:bg-black/45" value={form.maxAttempts} onChange={(event) => setForm((prev) => ({ ...prev, maxAttempts: event.target.value }))}>
                 <option value="1">1 attempt</option>
                 <option value="2">2 attempts</option>
                 <option value="3">3 attempts</option>
@@ -423,11 +311,7 @@ export const AdminExamsPage = () => {
             </label>
             <label className="flex flex-col gap-2 text-sm text-muted">
               <span className="font-medium text-neutral-300">Status</span>
-              <select
-                className="min-h-[52px] rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white outline-none transition focus:border-white/25 focus:bg-black/45"
-                value={form.status}
-                onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))}
-              >
+              <select className="min-h-[52px] rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white outline-none transition focus:border-white/25 focus:bg-black/45" value={form.status} onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))}>
                 <option value="draft">Draft</option>
                 <option value="published">Published</option>
                 <option value="completed">Completed</option>
@@ -437,99 +321,9 @@ export const AdminExamsPage = () => {
             <Input label="End Time" type="datetime-local" value={form.endTime} onChange={(event) => setForm((prev) => ({ ...prev, endTime: event.target.value }))} />
             <Input label="Locked Until (optional)" type="datetime-local" value={form.lockedUntil} onChange={(event) => setForm((prev) => ({ ...prev, lockedUntil: event.target.value }))} />
             <label className="flex items-center gap-3 rounded-2xl border border-white/8 bg-black/25 px-4 py-3 text-sm text-neutral-200">
-              <input
-                type="checkbox"
-                checked={form.isLocked}
-                onChange={(event) => setForm((prev) => ({ ...prev, isLocked: event.target.checked }))}
-              />
+              <input type="checkbox" checked={form.isLocked} onChange={(event) => setForm((prev) => ({ ...prev, isLocked: event.target.checked }))} />
               Lock this exam manually until an admin unlocks it
             </label>
-          </div>
-
-          <div className="rounded-[28px] border border-white/8 bg-black/30 p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.35em] text-muted">Section Rules</p>
-                <h3 className="mt-2 text-xl font-semibold text-white">Section-wise timer and cutoff setup</h3>
-                <p className="mt-2 text-sm leading-6 text-muted">
-                  Create timed sections, set cutoff marks, and map each question into one of these sections.
-                </p>
-              </div>
-              <Button
-                variant="secondary"
-                className="w-full sm:w-auto"
-                onClick={() =>
-                  setForm((prev) => ({
-                    ...prev,
-                    sections: [...prev.sections, createSection(`Section ${prev.sections.length + 1}`, 0, 0)]
-                  }))
-                }
-              >
-                Add Section
-              </Button>
-            </div>
-
-            <div className="mt-5 space-y-3">
-              {form.sections.map((section, index) => (
-                <div key={section._id || index} className="rounded-[24px] border border-white/8 bg-white/[0.03] p-4">
-                  <div className="grid gap-4 md:grid-cols-[1.3fr_0.8fr_0.8fr_auto]">
-                    <Input
-                      label="Section Title"
-                      value={section.title}
-                      onChange={(event) => onSectionChange(index, "title", event.target.value)}
-                      placeholder="General, Physics, Reasoning"
-                    />
-                    <Input
-                      label="Duration (minutes)"
-                      type="number"
-                      min="0"
-                      value={section.duration}
-                      onChange={(event) => onSectionChange(index, "duration", Number(event.target.value))}
-                    />
-                    <Input
-                      label="Cutoff Marks"
-                      type="number"
-                      min="0"
-                      value={section.cutoffMarks}
-                      onChange={(event) => onSectionChange(index, "cutoffMarks", Number(event.target.value))}
-                    />
-                    <div className="flex items-end">
-                      <Button
-                        variant="secondary"
-                        className="w-full"
-                        onClick={() =>
-                          setForm((prev) => {
-                            if (prev.sections.length === 1) {
-                              return prev;
-                            }
-
-                            const nextSections = prev.sections.filter((_, sectionIndex) => sectionIndex !== index);
-                            const fallbackSection = nextSections[0]?.title || "General";
-
-                            return {
-                              ...prev,
-                              sections: nextSections,
-                              questions: prev.questions.map((question) =>
-                                question.section === section.title
-                                  ? { ...question, section: fallbackSection }
-                                  : question
-                              )
-                            };
-                          })
-                        }
-                        disabled={form.sections.length === 1}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <p className="mt-4 text-sm text-muted">
-              Current section total: {form.sections.reduce((total, section) => total + Number(section.duration || 0), 0)} / {form.duration} minutes
-            </p>
           </div>
 
           <div className="rounded-[28px] border border-white/8 bg-black/30 p-5">
@@ -538,17 +332,13 @@ export const AdminExamsPage = () => {
                 <p className="text-xs uppercase tracking-[0.35em] text-muted">Question Import</p>
                 <h3 className="mt-2 text-xl font-semibold text-white">Paste or upload questions</h3>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-                  Import questions from pasted text, a `.txt` file, or a Word `.docx` file. Imported questions keep skip enabled by default.
+                  Import questions from pasted text, a `.txt` file, or a Word `.docx` file.
                 </p>
               </div>
 
               <label className="flex min-w-[180px] flex-col gap-2 text-sm text-muted">
                 <span className="font-medium text-neutral-300">Import mode</span>
-                <select
-                  className="min-h-[52px] rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white outline-none transition focus:border-white/25 focus:bg-black/45"
-                  value={importMode}
-                  onChange={(event) => setImportMode(event.target.value)}
-                >
+                <select className="min-h-[52px] rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white outline-none transition focus:border-white/25 focus:bg-black/45" value={importMode} onChange={(event) => setImportMode(event.target.value)}>
                   <option value="append">Append to existing questions</option>
                   <option value="replace">Replace all questions</option>
                 </select>
@@ -558,12 +348,7 @@ export const AdminExamsPage = () => {
             <div className="mt-5 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
               <label className="flex flex-col gap-2 text-sm text-muted">
                 <span className="font-medium text-neutral-300">Paste question content</span>
-                <textarea
-                  className="min-h-[260px] rounded-[24px] border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none transition focus:border-white/25 focus:bg-black/45"
-                  value={importText}
-                  onChange={(event) => setImportText(event.target.value)}
-                  placeholder={importTemplate}
-                />
+                <textarea className="min-h-[260px] rounded-[24px] border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none transition focus:border-white/25 focus:bg-black/45" value={importText} onChange={(event) => setImportText(event.target.value)} placeholder={importTemplate} />
               </label>
 
               <div className="space-y-4 rounded-[24px] border border-white/8 bg-white/[0.03] p-4">
@@ -597,39 +382,12 @@ export const AdminExamsPage = () => {
 
           <div className="space-y-4">
             {form.questions.map((question, index) => (
-              <QuestionEditor
-                key={question._id || index}
-                question={question}
-                index={index}
-                availableSections={sectionTitles}
-                onChange={onQuestionChange}
-                onRemove={(removeIndex) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    questions:
-                      prev.questions.length === 1
-                        ? prev.questions
-                        : prev.questions.filter((_, idx) => idx !== removeIndex)
-                  }))
-                }
-              />
+              <QuestionEditor key={question._id || index} question={question} index={index} onChange={onQuestionChange} onRemove={(removeIndex) => setForm((prev) => ({ ...prev, questions: prev.questions.length === 1 ? prev.questions : prev.questions.filter((_, idx) => idx !== removeIndex) }))} />
             ))}
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Button
-              variant="secondary"
-              className="w-full sm:w-auto"
-              onClick={() =>
-                setForm((prev) => ({
-                  ...prev,
-                  questions: [
-                    ...prev.questions,
-                    { ...createQuestion(), section: prev.sections[0]?.title || "General" }
-                  ]
-                }))
-              }
-            >
+            <Button variant="secondary" className="w-full sm:w-auto" onClick={() => setForm((prev) => ({ ...prev, questions: [...prev.questions, createQuestion()] }))}>
               Add Question
             </Button>
             <Button className="w-full sm:w-auto" type="submit" disabled={saving}>
@@ -690,14 +448,7 @@ export const AdminExamsPage = () => {
               ))}
             </div>
           ) : (
-            <EmptyState
-              title={filter ? "No matching exams" : "No exams yet"}
-              description={
-                filter
-                  ? "Try a different search term or clear the filter."
-                  : "Create your first exam to unlock scheduling, playlists, results, and analytics."
-              }
-            />
+            <EmptyState title={filter ? "No matching exams" : "No exams yet"} description={filter ? "Try a different search term or clear the filter." : "Create your first exam to unlock scheduling, playlists, results, and analytics."} />
           )}
         </div>
       </Card>

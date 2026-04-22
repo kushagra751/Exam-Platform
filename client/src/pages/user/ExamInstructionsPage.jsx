@@ -123,21 +123,6 @@ export const ExamInstructionsPage = () => {
           </div>
         </div>
 
-        {Array.isArray(exam.sections) && exam.sections.length > 0 ? (
-          <div className="mt-8 rounded-[28px] border border-white/8 bg-white/[0.03] p-5">
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Sections</p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {exam.sections.map((section) => (
-                <div key={section.title} className="metric-tile">
-                  <p className="text-xs uppercase tracking-[0.25em] text-muted">{section.title}</p>
-                  <p className="mt-2 text-lg font-semibold text-white">{section.duration} min</p>
-                  <p className="text-sm text-muted">Cutoff: {section.cutoffMarks}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
         <div className="mt-8 grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="rounded-[28px] border border-white/8 bg-white/[0.03] p-5">
             <p className="text-xs uppercase tracking-[0.3em] text-muted">Before You Begin</p>
@@ -167,7 +152,7 @@ export const ExamInstructionsPage = () => {
               </div>
               <div className="metric-tile">
                 <p className="text-sm leading-6 text-white">
-                  You can navigate freely using next, previous, and the question palette while the attempt remains live.
+                  You can navigate freely using next, previous, and the question palette throughout the attempt.
                 </p>
               </div>
             </div>

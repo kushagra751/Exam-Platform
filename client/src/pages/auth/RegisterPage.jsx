@@ -8,18 +8,7 @@ import { getRequestErrorMessage } from "../../utils/errors";
 
 export const RegisterPage = () => {
   const navigate = useNavigate();
-  const {
-    register,
-    loginWithGoogle,
-    loading,
-    isFirebaseConfigured,
-    isAuthenticated,
-    user,
-    bootstrapping,
-    googleAuthError,
-    clearGoogleAuthError,
-    googleAuthLoading
-  } = useAuth();
+  const { register, loading, isAuthenticated, user, bootstrapping } = useAuth();
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -34,13 +23,6 @@ export const RegisterPage = () => {
     }
   }, [bootstrapping, isAuthenticated, navigate, user]);
 
-  useEffect(() => {
-    if (googleAuthError) {
-      setError(googleAuthError);
-      clearGoogleAuthError();
-    }
-  }, [clearGoogleAuthError, googleAuthError]);
-
   const onSubmit = async (event) => {
     event.preventDefault();
     setError("");
@@ -50,16 +32,6 @@ export const RegisterPage = () => {
       navigate(data.role === "admin" ? "/admin" : "/dashboard");
     } catch (requestError) {
       setError(getRequestErrorMessage(requestError, "Unable to register"));
-    }
-  };
-
-  const onGoogleSignup = async () => {
-    setError("");
-
-    try {
-      await loginWithGoogle(form.role);
-    } catch (requestError) {
-      setError(getRequestErrorMessage(requestError, requestError.message || "Unable to continue with Google"));
     }
   };
 
@@ -111,21 +83,6 @@ export const RegisterPage = () => {
           {loading ? "Creating account..." : "Register"}
         </Button>
       </form>
-
-      {isFirebaseConfigured ? (
-        <>
-          <div className="my-6 glass-divider" />
-
-          <div className="space-y-3">
-            <Button variant="secondary" className="w-full" onClick={onGoogleSignup} disabled={loading || googleAuthLoading}>
-              {googleAuthLoading ? "Continuing with Google..." : "Continue with Google"}
-            </Button>
-            <p className="text-sm text-muted">
-              Google signup now uses the same simplified Firebase flow and then finishes your account access with the selected role.
-            </p>
-          </div>
-        </>
-      ) : null}
 
       <p className="mt-6 text-sm text-muted">
         Already have an account?{" "}

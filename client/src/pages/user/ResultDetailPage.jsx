@@ -71,21 +71,6 @@ export const ResultDetailPage = () => {
           ))}
         </div>
 
-        {Array.isArray(result.sectionScores) && result.sectionScores.length > 0 ? (
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            {result.sectionScores.map((section) => (
-              <div key={section.title} className="metric-tile">
-                <p className="text-xs uppercase tracking-[0.25em] text-muted">{section.title}</p>
-                <p className="mt-2 text-lg font-semibold text-white">
-                  {section.score} / cutoff {section.cutoffMarks}
-                </p>
-                <p className={`mt-1 text-sm ${section.passedCutoff ? "text-emerald-200" : "text-rose-200"}`}>
-                  {section.passedCutoff ? "Passed cutoff" : "Below cutoff"}
-                </p>
-              </div>
-            ))}
-          </div>
-        ) : null}
       </Card>
 
       {result.analyzer ? (
@@ -98,7 +83,9 @@ export const ResultDetailPage = () => {
               { label: "Accuracy", value: `${result.analyzer.accuracy}%` },
               { label: "Attempt Rate", value: `${result.analyzer.attemptedRate}%` },
               { label: "Skip Rate", value: `${result.analyzer.skipRate}%` },
-              { label: "Avg Time / Q", value: `${result.analyzer.avgSecondsPerQuestion}s` }
+              { label: "Avg Time / Q", value: `${result.analyzer.avgSecondsPerQuestion}s` },
+              { label: "Tracked Time", value: `${result.analyzer.totalTrackedSeconds}s` },
+              { label: "Exam Minutes", value: `${result.analyzer.durationMinutes}m` }
             ].map((item) => (
               <div key={item.label} className="metric-tile">
                 <p className="text-sm text-muted">{item.label}</p>
@@ -109,31 +96,31 @@ export const ResultDetailPage = () => {
 
           <div className="mt-6 grid gap-4 lg:grid-cols-3">
             <div className="metric-tile">
-              <p className="text-xs uppercase tracking-[0.25em] text-muted">Strong Sections</p>
+              <p className="text-xs uppercase tracking-[0.25em] text-muted">Slowest Questions</p>
               <div className="mt-3 space-y-2 text-sm text-white">
-                {result.analyzer.strongestSections.length ? (
-                  result.analyzer.strongestSections.map((section) => (
-                    <p key={section.title}>
-                      {section.title}: {section.score} ({section.status})
+                {result.analyzer.slowestQuestions.length ? (
+                  result.analyzer.slowestQuestions.map((item) => (
+                    <p key={`${item.questionNumber}-${item.timeSpentSeconds}`}>
+                      Q{item.questionNumber}: {item.timeSpentSeconds}s ({item.status})
                     </p>
                   ))
                 ) : (
-                  <p className="text-muted">No section data available</p>
+                  <p className="text-muted">No time data available</p>
                 )}
               </div>
             </div>
 
             <div className="metric-tile">
-              <p className="text-xs uppercase tracking-[0.25em] text-muted">Needs Improvement</p>
+              <p className="text-xs uppercase tracking-[0.25em] text-muted">Fastest Questions</p>
               <div className="mt-3 space-y-2 text-sm text-white">
-                {result.analyzer.weakestSections.length ? (
-                  result.analyzer.weakestSections.map((section) => (
-                    <p key={section.title}>
-                      {section.title}: {section.score} ({section.status})
+                {result.analyzer.fastestQuestions.length ? (
+                  result.analyzer.fastestQuestions.map((item) => (
+                    <p key={`${item.questionNumber}-${item.timeSpentSeconds}`}>
+                      Q{item.questionNumber}: {item.timeSpentSeconds}s ({item.status})
                     </p>
                   ))
                 ) : (
-                  <p className="text-muted">No weak section detected</p>
+                  <p className="text-muted">No fast-response data available</p>
                 )}
               </div>
             </div>
@@ -144,7 +131,7 @@ export const ResultDetailPage = () => {
                 {result.analyzer.reviewQuestionNumbers.length ? (
                   result.analyzer.reviewQuestionNumbers.map((item) => (
                     <p key={item.questionNumber}>
-                      Q{item.questionNumber} in {item.section}
+                      Q{item.questionNumber}: {item.timeSpentSeconds}s with {item.marksImpact} marks
                     </p>
                   ))
                 ) : (
@@ -196,19 +183,17 @@ export const ResultDetailPage = () => {
                 );
               })}
 
-              {answer.enableSkipOption ? (
-                <div
-                  className={`rounded-2xl border px-4 py-3 ${
-                    answer.isSkipped ? "border-amber-300 bg-amber-500/12 text-white" : "border-border bg-surface text-muted"
-                  }`}
-                >
-                  Skip without negative marking
-                </div>
-              ) : null}
+              <div
+                className={`rounded-2xl border px-4 py-3 ${
+                  answer.isSkipped ? "border-amber-300 bg-amber-500/12 text-white" : "border-border bg-surface text-muted"
+                }`}
+              >
+                5th option: no negative mark and counted as not attempted
+              </div>
             </div>
 
             <p className="mt-4 text-sm text-muted">
-              {answer.isSkipped ? "Skipped without penalty" : answer.isCorrect ? "Correct answer" : "Incorrect answer"} | Marks: {answer.obtainedMarks}
+              {answer.isSkipped ? "Not attempted without penalty" : answer.isCorrect ? "Correct answer" : "Incorrect answer"} | Marks: {answer.obtainedMarks} | Time spent: {answer.timeSpentSeconds || 0}s
             </p>
             {answer.explanation ? <p className="mt-2 text-sm text-muted">Explanation: {answer.explanation}</p> : null}
           </Card>

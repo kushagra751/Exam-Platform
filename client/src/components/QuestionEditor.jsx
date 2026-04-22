@@ -1,7 +1,7 @@
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
 
-export const QuestionEditor = ({ question, index, onChange, onRemove, availableSections = [] }) => {
+export const QuestionEditor = ({ question, index, onChange, onRemove }) => {
   const updateQuestion = (key, value) => {
     onChange(index, {
       ...question,
@@ -47,7 +47,7 @@ export const QuestionEditor = ({ question, index, onChange, onRemove, availableS
         placeholder="Enter question"
       />
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         <label className="flex flex-col gap-2 text-sm text-muted">
           <span className="font-medium text-neutral-300">Question type</span>
           <select
@@ -74,22 +74,6 @@ export const QuestionEditor = ({ question, index, onChange, onRemove, availableS
           value={question.marks}
           onChange={(event) => updateQuestion("marks", Number(event.target.value))}
         />
-
-        <label className="flex flex-col gap-2 text-sm text-muted">
-          <span className="font-medium text-neutral-300">Section</span>
-          <input
-            list={`section-options-${index}`}
-            className="min-h-[52px] rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition placeholder:text-neutral-500 focus:border-white/25 focus:bg-black/45"
-            value={question.section || "General"}
-            onChange={(event) => updateQuestion("section", event.target.value)}
-            placeholder="General"
-          />
-          <datalist id={`section-options-${index}`}>
-            {availableSections.map((section) => (
-              <option key={section} value={section} />
-            ))}
-          </datalist>
-        </label>
       </div>
 
       <Input
@@ -98,15 +82,6 @@ export const QuestionEditor = ({ question, index, onChange, onRemove, availableS
         onChange={(event) => updateQuestion("explanation", event.target.value)}
         placeholder="Optional explanation shown in result review"
       />
-
-      <label className="flex items-center gap-3 rounded-2xl border border-white/8 bg-black/25 px-4 py-3 text-sm text-neutral-200">
-        <input
-          type="checkbox"
-          checked={question.enableSkipOption !== false}
-          onChange={(event) => updateQuestion("enableSkipOption", event.target.checked)}
-        />
-        Allow skip-without-negative option for this question
-      </label>
 
       <div className="grid gap-3">
         <p className="text-xs uppercase tracking-[0.25em] text-muted">

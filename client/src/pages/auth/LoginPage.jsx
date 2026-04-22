@@ -8,18 +8,7 @@ import { getRequestErrorMessage } from "../../utils/errors";
 
 export const LoginPage = () => {
   const navigate = useNavigate();
-  const {
-    login,
-    loginWithGoogle,
-    loading,
-    isFirebaseConfigured,
-    isAuthenticated,
-    user,
-    bootstrapping,
-    googleAuthError,
-    clearGoogleAuthError,
-    googleAuthLoading
-  } = useAuth();
+  const { login, loading, isAuthenticated, user, bootstrapping } = useAuth();
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
 
@@ -28,13 +17,6 @@ export const LoginPage = () => {
       navigate(user.role === "admin" ? "/admin" : "/dashboard", { replace: true });
     }
   }, [bootstrapping, isAuthenticated, navigate, user]);
-
-  useEffect(() => {
-    if (googleAuthError) {
-      setError(googleAuthError);
-      clearGoogleAuthError();
-    }
-  }, [clearGoogleAuthError, googleAuthError]);
 
   const onSubmit = async (event) => {
     event.preventDefault();
@@ -48,22 +30,12 @@ export const LoginPage = () => {
     }
   };
 
-  const onGoogleLogin = async () => {
-    setError("");
-
-    try {
-      await loginWithGoogle("user");
-    } catch (requestError) {
-      setError(getRequestErrorMessage(requestError, requestError.message || "Unable to sign in with Google"));
-    }
-  };
-
   return (
     <Card className="rounded-[32px] p-6 sm:p-7">
       <p className="section-kicker">Login</p>
       <h2 className="mt-5 text-3xl font-semibold text-white">Welcome back</h2>
       <p className="mt-3 text-sm leading-6 text-muted">
-        Sign in with email or Google and continue directly into the exam workspace.
+        Sign in with your email and password to continue directly into the exam workspace.
       </p>
 
       <form className="mt-8 space-y-4" onSubmit={onSubmit}>
@@ -86,21 +58,6 @@ export const LoginPage = () => {
           {loading ? "Signing in..." : "Login"}
         </Button>
       </form>
-
-      {isFirebaseConfigured ? (
-        <>
-          <div className="my-6 glass-divider" />
-
-          <div className="space-y-3">
-            <Button variant="secondary" className="w-full" onClick={onGoogleLogin} disabled={loading || googleAuthLoading}>
-              {googleAuthLoading ? "Continuing with Google..." : "Continue with Google"}
-            </Button>
-            <p className="text-sm text-muted">
-              Google sign-in now uses a simpler Firebase flow with popup first and redirect fallback when needed.
-            </p>
-          </div>
-        </>
-      ) : null}
 
       <p className="mt-6 text-sm text-muted">
         New here?{" "}

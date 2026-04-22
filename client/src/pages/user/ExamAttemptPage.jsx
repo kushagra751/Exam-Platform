@@ -15,35 +15,6 @@ import { formatCountdown, getTimeRemainingInSeconds } from "../../utils/format";
 
 const getOptionLabel = (index) => String.fromCharCode(65 + index);
 
-const getElapsedSeconds = (startedAt) => Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
-
-const getSectionTiming = (sections = [], startedAt) => {
-  const elapsed = getElapsedSeconds(startedAt);
-  let consumed = 0;
-
-  for (let index = 0; index < sections.length; index += 1) {
-    const section = sections[index];
-    const sectionDurationSeconds = Number(section.duration || 0) * 60;
-    const sectionEnd = consumed + sectionDurationSeconds;
-
-    if (elapsed < sectionEnd || index === sections.length - 1) {
-      return {
-        activeSectionIndex: index,
-        elapsed,
-        sectionRemainingSeconds: Math.max(0, sectionEnd - elapsed)
-      };
-    }
-
-    consumed = sectionEnd;
-  }
-
-  return {
-    activeSectionIndex: 0,
-    elapsed,
-    sectionRemainingSeconds: 0
-  };
-};
-
 export const ExamAttemptPage = () => {
   const { examId } = useParams();
   const navigate = useNavigate();
@@ -52,6 +23,7 @@ export const ExamAttemptPage = () => {
   const answersRef = useRef([]);
   const attemptRef = useRef(null);
   const currentIndexRef = useRef(0);
+  const questionStartRef = useRef(Date.now());
   const submittingRef = useRef(false);
   const wasFullscreenRef = useRef(false);
   const [attempt, setAttempt] = useState(null);
@@ -75,6 +47,34 @@ export const ExamAttemptPage = () => {
     setFullscreenExitCount(data.fullscreenExitCount || 0);
   };
 
+  const updateAnswerState = (questionId, updater) => {
+    setAnswers((prev) => {
+      const nextAnswers = prev.map((answer) =>
+        answer.questionId === questionId ? { ...answer, ...updater(answer) } : answer
+      );
+      answersRef.current = nextAnswers;
+      return nextAnswers;
+    });
+  };
+
+  const trackTimeForQuestion = (questionId) => {
+    if (!questionId) {
+      return;
+    }
+
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - questionStartRef.current) / 1000));
+
+    if (!elapsedSeconds) {
+      questionStartRef.current = Date.now();
+      return;
+    }
+
+    updateAnswerState(questionId, (answer) => ({
+      timeSpentSeconds: Number(answer.timeSpentSeconds || 0) + elapsedSeconds
+    }));
+    questionStartRef.current = Date.now();
+  };
+
   const persistAnswer = async (
     questionId,
     { tabSwitched = false, fullscreenEntered = false, fullscreenExited = false } = {}
@@ -92,6 +92,7 @@ export const ExamAttemptPage = () => {
       visited: true,
       isSkipped: answer.isSkipped,
       markedForReview: answer.markedForReview,
+      timeSpentSeconds: answer.timeSpentSeconds || 0,
       tabSwitched,
       fullscreenEntered,
       fullscreenExited
@@ -99,6 +100,32 @@ export const ExamAttemptPage = () => {
 
     syncAttemptCounters(response.data);
     return response.data;
+  };
+
+  const saveAnswer = async (questionId, options = {}) => {
+    if (!questionId) {
+      return;
+    }
+
+    setSaveState("saving");
+
+    try {
+      await persistAnswer(questionId, options);
+      setSaveState("saved");
+    } catch (requestError) {
+      setSaveState("error");
+      throw requestError;
+    }
+  };
+
+  const queueSave = (questionId) => {
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+    }
+
+    saveTimerRef.current = window.setTimeout(() => {
+      saveAnswer(questionId).catch(() => undefined);
+    }, 250);
   };
 
   const requestFullscreen = async () => {
@@ -137,7 +164,8 @@ export const ExamAttemptPage = () => {
           ...answer,
           questionId: answer.questionId.toString(),
           selectedOptionIds: answer.selectedOptionIds.map((id) => id.toString()),
-          isSkipped: Boolean(answer.isSkipped)
+          isSkipped: Boolean(answer.isSkipped),
+          timeSpentSeconds: Number(answer.timeSpentSeconds || 0)
         }));
 
         attemptRef.current = data;
@@ -146,6 +174,7 @@ export const ExamAttemptPage = () => {
         setAnswers(mappedAnswers);
         syncAttemptCounters(data);
         setRemainingTime(getTimeRemainingInSeconds(data.startedAt, data.exam.duration));
+        questionStartRef.current = Date.now();
 
         if (fullscreenSupported) {
           await requestFullscreen();
@@ -212,6 +241,7 @@ export const ExamAttemptPage = () => {
       }
 
       const activeQuestionId = attemptRef.current.exam.questions[currentIndexRef.current]?._id;
+      trackTimeForQuestion(activeQuestionId);
 
       setTabWarning("Tab switching detected. Return to the exam to continue.");
       setNeedsFullscreen(true);
@@ -267,12 +297,6 @@ export const ExamAttemptPage = () => {
     };
   }, []);
 
-  const sections = useMemo(() => attempt?.exam.sections || [], [attempt]);
-  const sectionTiming = useMemo(
-    () => (attempt ? getSectionTiming(sections, attempt.startedAt) : { activeSectionIndex: 0, sectionRemainingSeconds: 0 }),
-    [attempt, remainingTime, sections]
-  );
-  const activeSection = sections[sectionTiming.activeSectionIndex] || sections[0] || null;
   const currentQuestion = attempt?.exam.questions[currentIndex] || null;
   const currentAnswer = useMemo(
     () => answers.find((answer) => answer.questionId === currentQuestion?._id) || null,
@@ -287,29 +311,6 @@ export const ExamAttemptPage = () => {
       }, {}),
     [answers]
   );
-
-  const activeSectionQuestionIndexes = useMemo(() => {
-    if (!attempt || !activeSection) {
-      return [];
-    }
-
-    return attempt.exam.questions.reduce((indexes, question, index) => {
-      if ((question.section || "General") === activeSection.title) {
-        indexes.push(index);
-      }
-      return indexes;
-    }, []);
-  }, [activeSection, attempt]);
-
-  useEffect(() => {
-    if (!activeSectionQuestionIndexes.length) {
-      return;
-    }
-
-    if (!activeSectionQuestionIndexes.includes(currentIndex)) {
-      setCurrentIndex(activeSectionQuestionIndexes[0]);
-    }
-  }, [activeSectionQuestionIndexes, currentIndex]);
 
   const progressStats = useMemo(() => {
     const attempted = answers.filter((answer) => answer.selectedOptionIds.length > 0).length;
@@ -327,63 +328,7 @@ export const ExamAttemptPage = () => {
     };
   }, [answers, attempt]);
 
-  const activeSectionStats = useMemo(() => {
-    if (!attempt || !activeSection) {
-      return { answered: 0, skipped: 0, total: 0 };
-    }
-
-    const sectionQuestionIds = new Set(
-      attempt.exam.questions
-        .filter((question) => (question.section || "General") === activeSection.title)
-        .map((question) => question._id)
-    );
-
-    const sectionAnswers = answers.filter((answer) => sectionQuestionIds.has(answer.questionId));
-
-    return {
-      answered: sectionAnswers.filter((answer) => answer.selectedOptionIds.length > 0).length,
-      skipped: sectionAnswers.filter((answer) => answer.isSkipped).length,
-      total: sectionAnswers.length
-    };
-  }, [activeSection, answers, attempt]);
-
-  const updateAnswerState = (questionId, updater) => {
-    setAnswers((prev) => {
-      const nextAnswers = prev.map((answer) =>
-        answer.questionId === questionId ? { ...answer, ...updater(answer) } : answer
-      );
-      answersRef.current = nextAnswers;
-      return nextAnswers;
-    });
-  };
-
-  const saveAnswer = async (questionId, options = {}) => {
-    if (!questionId) {
-      return;
-    }
-
-    setSaveState("saving");
-
-    try {
-      await persistAnswer(questionId, options);
-      setSaveState("saved");
-    } catch (requestError) {
-      setSaveState("error");
-      throw requestError;
-    }
-  };
-
-  const queueSave = (questionId) => {
-    if (saveTimerRef.current) {
-      window.clearTimeout(saveTimerRef.current);
-    }
-
-    saveTimerRef.current = window.setTimeout(() => {
-      saveAnswer(questionId).catch(() => undefined);
-    }, 250);
-  };
-
-  const toggleOption = (optionId) => {
+  const updateSelection = (optionId) => {
     if (!currentQuestion || !currentAnswer) {
       return;
     }
@@ -459,15 +404,20 @@ export const ExamAttemptPage = () => {
   };
 
   const moveQuestion = async (direction) => {
-    if (!currentQuestion || !activeSectionQuestionIndexes.length) {
+    if (!currentQuestion || !attempt) {
       return;
     }
 
+    trackTimeForQuestion(currentQuestion._id);
     await saveAnswer(currentQuestion._id).catch(() => undefined);
 
-    const currentPosition = activeSectionQuestionIndexes.indexOf(currentIndex);
-    const nextPosition = Math.min(Math.max(currentPosition + direction, 0), activeSectionQuestionIndexes.length - 1);
-    setCurrentIndex(activeSectionQuestionIndexes[nextPosition]);
+    const nextIndex = Math.min(
+      Math.max(currentIndex + direction, 0),
+      attempt.exam.questions.length - 1
+    );
+
+    questionStartRef.current = Date.now();
+    setCurrentIndex(nextIndex);
   };
 
   const jumpToQuestion = async (questionId) => {
@@ -477,17 +427,17 @@ export const ExamAttemptPage = () => {
 
     const nextIndex = attempt.exam.questions.findIndex((question) => question._id === questionId);
 
-    if (!activeSectionQuestionIndexes.includes(nextIndex)) {
+    if (nextIndex < 0) {
       return;
     }
 
     if (currentQuestion) {
+      trackTimeForQuestion(currentQuestion._id);
       await saveAnswer(currentQuestion._id).catch(() => undefined);
     }
 
-    if (nextIndex >= 0) {
-      setCurrentIndex(nextIndex);
-    }
+    questionStartRef.current = Date.now();
+    setCurrentIndex(nextIndex);
   };
 
   const submitExam = async () => {
@@ -500,6 +450,7 @@ export const ExamAttemptPage = () => {
 
     try {
       if (currentQuestion) {
+        trackTimeForQuestion(currentQuestion._id);
         await saveAnswer(currentQuestion._id);
       }
 
@@ -540,8 +491,6 @@ export const ExamAttemptPage = () => {
     );
   }
 
-  const currentSectionPosition = activeSectionQuestionIndexes.indexOf(currentIndex);
-
   return (
     <div className="exam-shell mx-auto max-w-6xl">
       <div className="space-y-4">
@@ -552,20 +501,12 @@ export const ExamAttemptPage = () => {
                 <p className="section-kicker">{attempt.isResumedAttempt ? "Resumed Attempt" : "Live Exam"}</p>
                 <h1 className="mt-4 break-words text-xl font-semibold text-white sm:text-2xl">{attempt.exam.title}</h1>
                 <p className="mt-2 text-sm text-muted">
-                  {activeSection ? `${activeSection.title} | ` : ""}Question {currentSectionPosition + 1} of {activeSectionQuestionIndexes.length || attempt.exam.questions.length}
+                  Question {currentIndex + 1} of {attempt.exam.questions.length}
                 </p>
               </div>
-              <div className="grid gap-2">
-                <div className="metric-tile min-w-[118px] text-center">
-                  <p className="text-xs uppercase tracking-[0.25em] text-muted">Overall</p>
-                  <p className="mt-2 text-xl font-semibold text-white">{formatCountdown(remainingTime)}</p>
-                </div>
-                {activeSection ? (
-                  <div className="metric-tile min-w-[118px] text-center">
-                    <p className="text-xs uppercase tracking-[0.25em] text-muted">Section</p>
-                    <p className="mt-2 text-xl font-semibold text-white">{formatCountdown(sectionTiming.sectionRemainingSeconds)}</p>
-                  </div>
-                ) : null}
+              <div className="metric-tile min-w-[118px] text-center">
+                <p className="text-xs uppercase tracking-[0.25em] text-muted">Overall</p>
+                <p className="mt-2 text-xl font-semibold text-white">{formatCountdown(remainingTime)}</p>
               </div>
             </div>
 
@@ -588,21 +529,6 @@ export const ExamAttemptPage = () => {
           </div>
         </Card>
 
-        {activeSection ? (
-          <Card className="rounded-[24px] p-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.28em] text-muted">Active Section</p>
-                <h2 className="mt-2 text-lg font-semibold text-white">{activeSection.title}</h2>
-                <p className="mt-1 text-sm text-muted">
-                  Cutoff: {activeSection.cutoffMarks} | Answered {activeSectionStats.answered} | Skipped {activeSectionStats.skipped}
-                </p>
-              </div>
-              <span className="soft-chip">{sectionTiming.sectionRemainingSeconds > 0 ? "Section timer running" : "Section moving"}</span>
-            </div>
-          </Card>
-        ) : null}
-
         {tabWarning ? <p className="rounded-2xl bg-amber-950/40 px-4 py-3 text-sm text-amber-100">{tabWarning}</p> : null}
         {fullscreenWarning ? <p className="rounded-2xl bg-red-950/35 px-4 py-3 text-sm text-red-100">{fullscreenWarning}</p> : null}
 
@@ -619,12 +545,10 @@ export const ExamAttemptPage = () => {
           <Card className="rounded-[28px] p-4 sm:p-5">
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.35em] text-muted">
-                <span>{currentQuestion.section || "General"}</span>
-                <span>|</span>
                 <span>{currentQuestion.type === "single" ? "Single correct" : "Multiple correct"}</span>
                 <span>|</span>
                 <span>{currentQuestion.marks} marks</span>
-                {currentAnswer.isSkipped ? <span className="rounded-full bg-amber-500/12 px-2 py-1 tracking-normal text-amber-200">Skipped</span> : null}
+                {currentAnswer.isSkipped ? <span className="rounded-full bg-amber-500/12 px-2 py-1 tracking-normal text-amber-200">Not attempted</span> : null}
                 {currentAnswer.markedForReview ? <span className="rounded-full bg-rose-500/12 px-2 py-1 tracking-normal text-rose-200">Review</span> : null}
               </div>
 
@@ -637,18 +561,14 @@ export const ExamAttemptPage = () => {
                   return (
                     <button
                       key={option._id}
-                      onClick={() => toggleOption(option._id)}
+                      onClick={() => updateSelection(option._id)}
                       className={`flex w-full items-start gap-4 rounded-[22px] border px-4 py-4 text-left transition ${
                         checked
                           ? "border-emerald-300 bg-emerald-500/12 text-white"
                           : "border-white/10 bg-black/30 text-white hover:border-white/16 hover:bg-white/[0.05]"
                       }`}
                     >
-                      <span
-                        className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
-                          checked ? "border-emerald-200 bg-emerald-200 text-black" : "border-white/20 text-muted"
-                        }`}
-                      >
+                      <span className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${checked ? "border-emerald-200 bg-emerald-200 text-black" : "border-white/20 text-muted"}`}>
                         {getOptionLabel(optionIndex)}
                       </span>
                       <span className="text-sm leading-6">{option.text}</span>
@@ -656,38 +576,28 @@ export const ExamAttemptPage = () => {
                   );
                 })}
 
-                {currentQuestion.enableSkipOption !== false ? (
-                  <button
-                    onClick={skipQuestion}
-                    className={`flex w-full items-start gap-4 rounded-[22px] border px-4 py-4 text-left transition ${
-                      currentAnswer.isSkipped
-                        ? "border-amber-300 bg-amber-500/12 text-white"
-                        : "border-white/10 bg-black/30 text-white hover:border-white/16 hover:bg-white/[0.05]"
-                    }`}
-                  >
-                    <span
-                      className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
-                        currentAnswer.isSkipped ? "border-amber-200 bg-amber-200 text-black" : "border-white/20 text-muted"
-                      }`}
-                    >
-                      S
-                    </span>
-                    <span className="text-sm leading-6">Skip this question without negative marking</span>
-                  </button>
-                ) : null}
+                <button
+                  onClick={skipQuestion}
+                  className={`flex w-full items-start gap-4 rounded-[22px] border px-4 py-4 text-left transition ${
+                    currentAnswer.isSkipped
+                      ? "border-amber-300 bg-amber-500/12 text-white"
+                      : "border-white/10 bg-black/30 text-white hover:border-white/16 hover:bg-white/[0.05]"
+                  }`}
+                >
+                  <span className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${currentAnswer.isSkipped ? "border-amber-200 bg-amber-200 text-black" : "border-white/20 text-muted"}`}>
+                    E
+                  </span>
+                  <span className="text-sm leading-6">5th option: no negative mark and count as not attempted</span>
+                </button>
               </div>
 
               {error ? <p className="text-sm text-red-300">{error}</p> : null}
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <Button variant="secondary" onClick={() => moveQuestion(-1)} disabled={currentSectionPosition <= 0}>
+                <Button variant="secondary" onClick={() => moveQuestion(-1)} disabled={currentIndex <= 0}>
                   Previous
                 </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => moveQuestion(1)}
-                  disabled={currentSectionPosition === activeSectionQuestionIndexes.length - 1}
-                >
+                <Button variant="secondary" onClick={() => moveQuestion(1)} disabled={currentIndex >= attempt.exam.questions.length - 1}>
                   Next
                 </Button>
                 <Button variant="secondary" onClick={toggleReview}>
@@ -703,7 +613,7 @@ export const ExamAttemptPage = () => {
 
               <p className="text-xs text-muted">
                 Autosave: {saveState === "saving" ? "Saving..." : saveState === "error" ? "Retry pending" : "Saved"} |
-                Tab switches: {tabSwitchCount} | Fullscreen exits: {fullscreenExitCount}
+                Time on this question: {currentAnswer.timeSpentSeconds || 0}s | Tab switches: {tabSwitchCount} | Fullscreen exits: {fullscreenExitCount}
               </p>
             </div>
           </Card>
@@ -719,10 +629,10 @@ export const ExamAttemptPage = () => {
             <Card className="rounded-[24px] p-4">
               <h3 className="text-sm font-semibold text-white">Quick rules</h3>
               <ul className="mt-3 space-y-2 text-sm leading-6 text-muted">
-                <li>Only the active section is navigable while its timer is running.</li>
-                <li>Answered questions show green.</li>
-                <li>Skipped questions show amber and do not get negative marks.</li>
+                <li>Questions answered are shown in green.</li>
+                <li>The built-in 5th option marks a question as not attempted with no negative cut.</li>
                 <li>Review questions show red in the palette.</li>
+                <li>Per-question time is tracked for the result analyzer.</li>
               </ul>
             </Card>
           </div>

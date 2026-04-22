@@ -14,26 +14,24 @@ const buildResultAnalyzer = (result, exam, detailedAnswers) => {
     Number((((new Date(result.submittedAt || result.updatedAt)).getTime() - new Date(result.startedAt).getTime()) / 60000).toFixed(2))
   );
   const avgSecondsPerQuestion = totalQuestions ? Number(((durationMinutes * 60) / totalQuestions).toFixed(2)) : 0;
-
-  const strongestSections = [...(result.sectionScores || [])]
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 2)
-    .map((section) => ({
-      title: section.title,
-      score: section.score,
-      cutoffMarks: section.cutoffMarks,
-      status: section.passedCutoff ? "Passed cutoff" : "Below cutoff"
-    }));
-
-  const weakestSections = [...(result.sectionScores || [])]
-    .sort((left, right) => left.score - right.score)
-    .slice(0, 2)
-    .map((section) => ({
-      title: section.title,
-      score: section.score,
-      cutoffMarks: section.cutoffMarks,
-      status: section.passedCutoff ? "Passed cutoff" : "Below cutoff"
-    }));
+  const totalTrackedSeconds = detailedAnswers.reduce((sum, answer) => sum + Number(answer.timeSpentSeconds || 0), 0);
+  const slowestQuestions = [...detailedAnswers]
+    .map((answer, index) => ({
+      questionNumber: index + 1,
+      timeSpentSeconds: Number(answer.timeSpentSeconds || 0),
+      status: answer.isSkipped ? "Skipped" : answer.isCorrect ? "Correct" : answer.selectedOptionIds.length ? "Incorrect" : "Not attempted"
+    }))
+    .sort((left, right) => right.timeSpentSeconds - left.timeSpentSeconds)
+    .slice(0, 5);
+  const fastestQuestions = [...detailedAnswers]
+    .map((answer, index) => ({
+      questionNumber: index + 1,
+      timeSpentSeconds: Number(answer.timeSpentSeconds || 0),
+      status: answer.isSkipped ? "Skipped" : answer.isCorrect ? "Correct" : answer.selectedOptionIds.length ? "Incorrect" : "Not attempted"
+    }))
+    .filter((item) => item.timeSpentSeconds > 0)
+    .sort((left, right) => left.timeSpentSeconds - right.timeSpentSeconds)
+    .slice(0, 5);
 
   const reviewQuestionNumbers = detailedAnswers
     .map((answer, index) => ({ index, answer }))
@@ -42,7 +40,7 @@ const buildResultAnalyzer = (result, exam, detailedAnswers) => {
     .map(({ index, answer }) => ({
       questionNumber: index + 1,
       marksImpact: answer.obtainedMarks,
-      section: answer.section || "General"
+      timeSpentSeconds: Number(answer.timeSpentSeconds || 0)
     }));
 
   const recommendations = [];
@@ -59,8 +57,8 @@ const buildResultAnalyzer = (result, exam, detailedAnswers) => {
     recommendations.push("Focus discipline dropped during the exam. Stay on one screen to avoid interruptions and lost momentum.");
   }
 
-  if ((result.sectionScores || []).some((section) => !section.passedCutoff)) {
-    recommendations.push("At least one section missed its cutoff. Prioritize those sections before your next attempt.");
+  if (avgSecondsPerQuestion > 90) {
+    recommendations.push("Average time per question is high. Practice a tighter first pass so difficult questions do not consume too much time.");
   }
 
   if (!recommendations.length) {
@@ -75,8 +73,9 @@ const buildResultAnalyzer = (result, exam, detailedAnswers) => {
     scoreEfficiency,
     durationMinutes,
     avgSecondsPerQuestion,
-    strongestSections,
-    weakestSections,
+    totalTrackedSeconds,
+    slowestQuestions,
+    fastestQuestions,
     reviewQuestionNumbers,
     recommendations
   };
@@ -115,18 +114,17 @@ export const getResultById = asyncHandler(async (req, res) => {
 
     return {
       questionId: question._id,
-      section: question.section || "General",
       prompt: question.prompt,
       type: question.type,
       marks: question.marks,
-      enableSkipOption: question.enableSkipOption !== false,
       explanation: question.explanation,
       options: question.options,
       correctOptionIds: question.correctOptionIds,
       selectedOptionIds: savedAnswer?.selectedOptionIds || [],
       isSkipped: savedAnswer?.isSkipped || false,
       isCorrect: savedAnswer?.isCorrect || false,
-      obtainedMarks: savedAnswer?.obtainedMarks || 0
+      obtainedMarks: savedAnswer?.obtainedMarks || 0,
+      timeSpentSeconds: savedAnswer?.timeSpentSeconds || 0
     };
   });
 
