@@ -12,63 +12,47 @@ const requiredFirebaseKeys = ["apiKey", "authDomain", "projectId", "appId"];
 
 export const isFirebaseConfigured = requiredFirebaseKeys.every((key) => Boolean(firebaseConfig[key]));
 
-let firebaseAppPromise = null;
-let firebaseAuthPromise = null;
-let analyticsStarted = false;
+let firebaseRuntimePromise = null;
 
-const startAnalytics = async (app) => {
-  if (analyticsStarted || typeof window === "undefined" || !firebaseConfig.measurementId) {
-    return;
-  }
-
-  analyticsStarted = true;
-
-  try {
-    const analyticsModule = await import("firebase/analytics");
-    const supported = await analyticsModule.isSupported();
-
-    if (supported) {
-      analyticsModule.getAnalytics(app);
-    }
-  } catch (error) {
-    analyticsStarted = false;
-  }
-};
-
-const getFirebaseApp = async () => {
+export const loadFirebaseRuntime = async () => {
   if (!isFirebaseConfigured) {
     return null;
   }
 
-  if (!firebaseAppPromise) {
-    firebaseAppPromise = import("firebase/app").then(({ initializeApp }) => {
-      const app = initializeApp(firebaseConfig);
-      startAnalytics(app);
-      return app;
+  if (!firebaseRuntimePromise) {
+    firebaseRuntimePromise = Promise.all([
+      import("firebase/app"),
+      import("firebase/auth"),
+      import("firebase/analytics")
+    ]).then(async ([appModule, authModule, analyticsModule]) => {
+      const app = appModule.initializeApp(firebaseConfig);
+      const auth = authModule.getAuth(app);
+
+      if (typeof window !== "undefined" && firebaseConfig.measurementId) {
+        try {
+          const supported = await analyticsModule.isSupported();
+
+          if (supported) {
+            analyticsModule.getAnalytics(app);
+          }
+        } catch (error) {
+          // Analytics is optional for auth flow.
+        }
+      }
+
+      return {
+        app,
+        auth,
+        GoogleAuthProvider: authModule.GoogleAuthProvider,
+        signInWithPopup: authModule.signInWithPopup,
+        signInWithRedirect: authModule.signInWithRedirect,
+        getRedirectResult: authModule.getRedirectResult,
+        browserLocalPersistence: authModule.browserLocalPersistence,
+        setPersistence: authModule.setPersistence,
+        signOut: authModule.signOut
+      };
     });
   }
 
-  return firebaseAppPromise;
-};
-
-export const loadFirebaseAuthRuntime = async () => {
-  if (!isFirebaseConfigured) {
-    return null;
-  }
-
-  if (!firebaseAuthPromise) {
-    firebaseAuthPromise = Promise.all([getFirebaseApp(), import("firebase/auth")]).then(([app, authModule]) => ({
-      app,
-      auth: authModule.getAuth(app),
-      GoogleAuthProvider: authModule.GoogleAuthProvider,
-      RecaptchaVerifier: authModule.RecaptchaVerifier,
-      signInWithPhoneNumber: authModule.signInWithPhoneNumber,
-      signInWithPopup: authModule.signInWithPopup,
-      signInWithRedirect: authModule.signInWithRedirect,
-      getRedirectResult: authModule.getRedirectResult,
-      signOut: authModule.signOut
-    }));
-  }
-
-  return firebaseAuthPromise;
+  return firebaseRuntimePromise;
 };

@@ -16,8 +16,9 @@ export const RegisterPage = () => {
     isAuthenticated,
     user,
     bootstrapping,
-    firebaseRedirectError,
-    clearFirebaseRedirectError
+    googleAuthError,
+    clearGoogleAuthError,
+    googleAuthLoading
   } = useAuth();
   const [form, setForm] = useState({
     name: "",
@@ -34,11 +35,11 @@ export const RegisterPage = () => {
   }, [bootstrapping, isAuthenticated, navigate, user]);
 
   useEffect(() => {
-    if (firebaseRedirectError) {
-      setError(firebaseRedirectError);
-      clearFirebaseRedirectError();
+    if (googleAuthError) {
+      setError(googleAuthError);
+      clearGoogleAuthError();
     }
-  }, [clearFirebaseRedirectError, firebaseRedirectError]);
+  }, [clearGoogleAuthError, googleAuthError]);
 
   const onSubmit = async (event) => {
     event.preventDefault();
@@ -116,11 +117,11 @@ export const RegisterPage = () => {
           <div className="my-6 glass-divider" />
 
           <div className="space-y-3">
-            <Button variant="secondary" className="w-full" onClick={onGoogleSignup} disabled={loading}>
-              Continue with Google
+            <Button variant="secondary" className="w-full" onClick={onGoogleSignup} disabled={loading || googleAuthLoading}>
+              {googleAuthLoading ? "Continuing with Google..." : "Continue with Google"}
             </Button>
             <p className="text-sm text-muted">
-              Google signup returns here once, then automatically finishes account access with your selected role.
+              Google signup now uses the same simplified Firebase flow and then finishes your account access with the selected role.
             </p>
           </div>
         </>

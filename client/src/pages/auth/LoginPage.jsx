@@ -16,8 +16,9 @@ export const LoginPage = () => {
     isAuthenticated,
     user,
     bootstrapping,
-    firebaseRedirectError,
-    clearFirebaseRedirectError
+    googleAuthError,
+    clearGoogleAuthError,
+    googleAuthLoading
   } = useAuth();
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
@@ -29,11 +30,11 @@ export const LoginPage = () => {
   }, [bootstrapping, isAuthenticated, navigate, user]);
 
   useEffect(() => {
-    if (firebaseRedirectError) {
-      setError(firebaseRedirectError);
-      clearFirebaseRedirectError();
+    if (googleAuthError) {
+      setError(googleAuthError);
+      clearGoogleAuthError();
     }
-  }, [clearFirebaseRedirectError, firebaseRedirectError]);
+  }, [clearGoogleAuthError, googleAuthError]);
 
   const onSubmit = async (event) => {
     event.preventDefault();
@@ -91,11 +92,11 @@ export const LoginPage = () => {
           <div className="my-6 glass-divider" />
 
           <div className="space-y-3">
-            <Button variant="secondary" className="w-full" onClick={onGoogleLogin} disabled={loading}>
-              Continue with Google
+            <Button variant="secondary" className="w-full" onClick={onGoogleLogin} disabled={loading || googleAuthLoading}>
+              {googleAuthLoading ? "Continuing with Google..." : "Continue with Google"}
             </Button>
             <p className="text-sm text-muted">
-              Google sign-in returns here once, then automatically sends you to your dashboard.
+              Google sign-in now uses a simpler Firebase flow with popup first and redirect fallback when needed.
             </p>
           </div>
         </>

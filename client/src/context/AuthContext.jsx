@@ -1,12 +1,21 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import api from "../api/axios";
-import { isFirebaseConfigured, loadFirebaseAuthRuntime } from "../lib/firebase";
+import { isFirebaseConfigured, loadFirebaseRuntime } from "../lib/firebase";
 
 const AuthContext = createContext(null);
 
 const storageKey = "exam-platform-auth";
-const firebaseRoleKey = "exam-platform-firebase-role";
-const firebaseRedirectErrorKey = "exam-platform-firebase-redirect-error";
+const googleRoleKey = "exam-platform-google-role";
+
+const readStoredAuth = () => {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    localStorage.removeItem(storageKey);
+    return null;
+  }
+};
 
 const persistAuth = (value) => {
   if (value) {
@@ -16,48 +25,30 @@ const persistAuth = (value) => {
   }
 };
 
-const normalizeStoredAuth = () => {
-  try {
-    const stored = localStorage.getItem(storageKey);
-    return stored ? JSON.parse(stored) : null;
-  } catch (error) {
-    localStorage.removeItem(storageKey);
-    return null;
-  }
-};
-
-const exchangeFirebaseSession = async (firebaseUser, role = "user") => {
-  const idToken = await firebaseUser.getIdToken();
+const exchangeGoogleSession = async (firebaseUser, role = "user") => {
+  const idToken = await firebaseUser.getIdToken(true);
   const { data } = await api.post("/auth/firebase", { idToken, role });
   return data;
 };
 
 export const AuthProvider = ({ children }) => {
-  const [auth, setAuth] = useState(normalizeStoredAuth);
+  const [auth, setAuth] = useState(readStoredAuth);
   const [loading, setLoading] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
-  const [firebaseRedirectError, setFirebaseRedirectError] = useState(
-    () => sessionStorage.getItem(firebaseRedirectErrorKey) || ""
-  );
+  const [googleAuthLoading, setGoogleAuthLoading] = useState(false);
+  const [googleAuthError, setGoogleAuthError] = useState("");
 
   useEffect(() => {
     persistAuth(auth);
   }, [auth]);
 
   useEffect(() => {
-    const syncCurrentUser = async () => {
-      if (!auth?.token) {
-        setBootstrapping(false);
-        return;
-      }
-
+    const bootstrap = async () => {
       try {
-        const { data } = await api.get("/auth/me");
-        setAuth((prev) => ({
-          ...prev,
-          ...data,
-          token: prev.token
-        }));
+        if (auth?.token) {
+          const { data } = await api.get("/auth/me");
+          setAuth((prev) => ({ ...prev, ...data, token: prev.token }));
+        }
       } catch (error) {
         setAuth(null);
       } finally {
@@ -65,47 +56,48 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
-    syncCurrentUser();
+    bootstrap();
   }, []);
 
   useEffect(() => {
-    const syncRedirectResult = async () => {
+    const finishGoogleRedirect = async () => {
       if (!isFirebaseConfigured) {
         return;
       }
 
-      try {
-        const firebaseRuntime = await loadFirebaseAuthRuntime();
+      setGoogleAuthLoading(true);
 
-        if (!firebaseRuntime) {
+      try {
+        const runtime = await loadFirebaseRuntime();
+
+        if (!runtime) {
           return;
         }
 
-        const redirectResult = await firebaseRuntime.getRedirectResult(firebaseRuntime.auth);
+        await runtime.setPersistence(runtime.auth, runtime.browserLocalPersistence);
 
-        if (redirectResult?.user) {
-          const intendedRole = sessionStorage.getItem(firebaseRoleKey) || "user";
-          const data = await exchangeFirebaseSession(redirectResult.user, intendedRole);
-          sessionStorage.removeItem(firebaseRoleKey);
-          sessionStorage.removeItem(firebaseRedirectErrorKey);
-          setFirebaseRedirectError("");
-          setAuth(data);
-          window.location.replace(data.role === "admin" ? "/admin" : "/dashboard");
+        const redirectResult = await runtime.getRedirectResult(runtime.auth);
+        const firebaseUser = redirectResult?.user || runtime.auth.currentUser;
+
+        if (!firebaseUser) {
+          return;
         }
+
+        const selectedRole = localStorage.getItem(googleRoleKey) || "user";
+        const data = await exchangeGoogleSession(firebaseUser, selectedRole);
+        localStorage.removeItem(googleRoleKey);
+        setGoogleAuthError("");
+        setAuth(data);
       } catch (error) {
         const message = error?.response?.data?.message || error?.message || "Unable to continue with Google";
-        sessionStorage.setItem(firebaseRedirectErrorKey, message);
-        setFirebaseRedirectError(message);
+        setGoogleAuthError(message);
+      } finally {
+        setGoogleAuthLoading(false);
       }
     };
 
-    syncRedirectResult();
+    finishGoogleRedirect();
   }, []);
-
-  const clearFirebaseRedirectError = () => {
-    sessionStorage.removeItem(firebaseRedirectErrorKey);
-    setFirebaseRedirectError("");
-  };
 
   const login = async (payload) => {
     setLoading(true);
@@ -134,57 +126,88 @@ export const AuthProvider = ({ children }) => {
       throw new Error("Firebase authentication is not configured");
     }
 
-    setLoading(true);
+    setGoogleAuthError("");
+    setGoogleAuthLoading(true);
 
     try {
-      const firebaseRuntime = await loadFirebaseAuthRuntime();
+      const runtime = await loadFirebaseRuntime();
 
-      if (!firebaseRuntime) {
+      if (!runtime) {
         throw new Error("Firebase authentication is not configured");
       }
 
-      const provider = new firebaseRuntime.GoogleAuthProvider();
+      await runtime.setPersistence(runtime.auth, runtime.browserLocalPersistence);
+
+      const provider = new runtime.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
-      sessionStorage.setItem(firebaseRoleKey, role);
-      await firebaseRuntime.signInWithRedirect(firebaseRuntime.auth, provider);
-      return null;
+      localStorage.setItem(googleRoleKey, role);
+
+      try {
+        const popupResult = await runtime.signInWithPopup(runtime.auth, provider);
+        const data = await exchangeGoogleSession(popupResult.user, role);
+        localStorage.removeItem(googleRoleKey);
+        setAuth(data);
+        return data;
+      } catch (popupError) {
+        const message = popupError?.message || "";
+        const shouldFallbackToRedirect =
+          message.includes("popup") ||
+          popupError?.code === "auth/popup-blocked" ||
+          popupError?.code === "auth/cancelled-popup-request" ||
+          popupError?.code === "auth/web-storage-unsupported";
+
+        if (!shouldFallbackToRedirect) {
+          throw popupError;
+        }
+
+        await runtime.signInWithRedirect(runtime.auth, provider);
+        return null;
+      }
+    } catch (error) {
+      const message = error?.response?.data?.message || error?.message || "Unable to continue with Google";
+      setGoogleAuthError(message);
+      throw new Error(message);
     } finally {
-      setLoading(false);
+      setGoogleAuthLoading(false);
     }
   };
+
+  const clearGoogleAuthError = () => setGoogleAuthError("");
 
   const logout = async () => {
     if (isFirebaseConfigured) {
-      const firebaseRuntime = await loadFirebaseAuthRuntime().catch(() => null);
+      const runtime = await loadFirebaseRuntime().catch(() => null);
 
-      if (firebaseRuntime?.auth?.currentUser) {
-        await firebaseRuntime.signOut(firebaseRuntime.auth).catch(() => undefined);
+      if (runtime?.auth?.currentUser) {
+        await runtime.signOut(runtime.auth).catch(() => undefined);
       }
     }
 
+    localStorage.removeItem(googleRoleKey);
     setAuth(null);
+    setGoogleAuthError("");
   };
 
-  return (
-    <AuthContext.Provider
-      value={{
-        auth,
-        user: auth,
-        isAuthenticated: Boolean(auth?.token),
-        loading,
-        bootstrapping,
-        isFirebaseConfigured,
-        firebaseRedirectError,
-        clearFirebaseRedirectError,
-        login,
-        register,
-        loginWithGoogle,
-        logout
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      auth,
+      user: auth,
+      isAuthenticated: Boolean(auth?.token),
+      loading,
+      bootstrapping,
+      isFirebaseConfigured,
+      googleAuthLoading,
+      googleAuthError,
+      clearGoogleAuthError,
+      login,
+      register,
+      loginWithGoogle,
+      logout
+    }),
+    [auth, bootstrapping, googleAuthError, googleAuthLoading, loading]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => useContext(AuthContext);
