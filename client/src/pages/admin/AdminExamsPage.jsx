@@ -17,11 +17,20 @@ const createOption = (text = "") => ({
   text
 });
 
+const createSection = (title = "General", duration = 60, cutoffMarks = 0) => ({
+  _id: createId(),
+  title,
+  duration,
+  cutoffMarks
+});
+
 const createQuestion = () => ({
   prompt: "",
+  section: "General",
   type: "single",
   marks: 1,
   explanation: "",
+  enableSkipOption: true,
   options: [createOption(""), createOption(""), createOption(""), createOption("")],
   correctOptionIds: []
 });
@@ -35,13 +44,19 @@ const isBlankQuestion = (question) =>
 const createInitialExamForm = () => ({
   title: "",
   description: "",
+  subject: "",
+  topic: "",
+  playlist: "",
   duration: 60,
   totalMarks: 100,
   negativeMarking: "0",
   maxAttempts: "1",
   status: "draft",
+  isLocked: false,
+  lockedUntil: "",
   startTime: "",
   endTime: "",
+  sections: [createSection()],
   questions: [createQuestion()]
 });
 
@@ -78,16 +93,22 @@ export const AdminExamsPage = () => {
   const [importError, setImportError] = useState("");
 
   const isEditing = useMemo(() => Boolean(editingId), [editingId]);
+  const sectionTitles = useMemo(
+    () => form.sections.map((section) => section.title.trim()).filter(Boolean),
+    [form.sections]
+  );
   const builderStats = useMemo(() => {
     const readyQuestions = form.questions.filter((question) => question.prompt.trim()).length;
     const configuredMarks = form.questions.reduce((total, question) => total + Number(question.marks || 0), 0);
+    const totalSectionMinutes = form.sections.reduce((total, section) => total + Number(section.duration || 0), 0);
 
     return [
       { label: "Questions", value: form.questions.length },
       { label: "Ready", value: readyQuestions },
-      { label: "Question Marks", value: configuredMarks }
+      { label: "Question Marks", value: configuredMarks },
+      { label: "Section Minutes", value: totalSectionMinutes }
     ];
-  }, [form.questions]);
+  }, [form.questions, form.sections]);
 
   const filteredExams = useMemo(() => {
     const query = filter.trim().toLowerCase();
@@ -96,11 +117,10 @@ export const AdminExamsPage = () => {
       return exams;
     }
 
-    return exams.filter(
-      (exam) =>
-        exam.title.toLowerCase().includes(query) ||
-        exam.description.toLowerCase().includes(query) ||
-        exam.status.toLowerCase().includes(query)
+    return exams.filter((exam) =>
+      [exam.title, exam.description, exam.subject, exam.topic, exam.playlist, exam.status]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(query))
     );
   }, [exams, filter]);
 
@@ -131,14 +151,32 @@ export const AdminExamsPage = () => {
     }));
   };
 
+  const onSectionChange = (index, key, value) => {
+    setForm((prev) => ({
+      ...prev,
+      sections: prev.sections.map((section, idx) => (idx === index ? { ...section, [key]: value } : section))
+    }));
+  };
+
   const applyImportedQuestions = (questions) => {
     setForm((prev) => ({
       ...prev,
       questions:
         importMode === "replace" ||
         (prev.questions.length === 1 && isBlankQuestion(prev.questions[0]))
-          ? questions
-          : [...prev.questions, ...questions]
+          ? questions.map((question) => ({
+              ...question,
+              section: question.section || prev.sections[0]?.title || "General",
+              enableSkipOption: question.enableSkipOption !== false
+            }))
+          : [
+              ...prev.questions,
+              ...questions.map((question) => ({
+                ...question,
+                section: question.section || prev.sections[0]?.title || "General",
+                enableSkipOption: question.enableSkipOption !== false
+              }))
+            ]
     }));
   };
 
@@ -147,15 +185,31 @@ export const AdminExamsPage = () => {
     setForm({
       title: exam.title,
       description: exam.description,
+      subject: exam.subject || "",
+      topic: exam.topic || "",
+      playlist: exam.playlist || "",
       duration: exam.duration,
       totalMarks: exam.totalMarks,
       negativeMarking: String(exam.negativeMarking),
       maxAttempts: (exam.maxAttempts ?? 1) === 0 ? "unlimited" : String(exam.maxAttempts ?? 1),
       status: exam.status,
+      isLocked: Boolean(exam.isLocked),
+      lockedUntil: exam.lockedUntil ? new Date(exam.lockedUntil).toISOString().slice(0, 16) : "",
       startTime: new Date(exam.startTime).toISOString().slice(0, 16),
       endTime: new Date(exam.endTime).toISOString().slice(0, 16),
+      sections:
+        exam.sections?.length > 0
+          ? exam.sections.map((section) => ({
+              _id: createId(),
+              title: section.title,
+              duration: section.duration,
+              cutoffMarks: section.cutoffMarks
+            }))
+          : [createSection("General", exam.duration, 0)],
       questions: exam.questions.map((question) => ({
         ...question,
+        section: question.section || "General",
+        enableSkipOption: question.enableSkipOption !== false,
         correctOptionIds: question.correctOptionIds.map((id) => id.toString())
       }))
     });
@@ -181,6 +235,40 @@ export const AdminExamsPage = () => {
     setError("");
 
     try {
+      const trimmedSections = form.sections
+        .map((section) => ({
+          ...section,
+          title: section.title.trim(),
+          duration: Number(section.duration || 0),
+          cutoffMarks: Number(section.cutoffMarks || 0)
+        }))
+        .filter((section) => section.title);
+
+      if (!trimmedSections.length) {
+        throw new Error("Add at least one section before saving the exam.");
+      }
+
+      const sectionMinutes = trimmedSections.reduce((sum, section) => sum + section.duration, 0);
+
+      if (sectionMinutes !== Number(form.duration)) {
+        throw new Error("Section minutes must exactly match the overall exam duration.");
+      }
+
+      const invalidSections = form.questions
+        .map((question, index) => ({
+          index,
+          section: question.section?.trim()
+        }))
+        .filter((item) => !item.section || !trimmedSections.some((section) => section.title === item.section));
+
+      if (invalidSections.length > 0) {
+        throw new Error(
+          `Assign valid sections for question${invalidSections.length > 1 ? "s" : ""} ${invalidSections
+            .map((item) => item.index + 1)
+            .join(", ")}`
+        );
+      }
+
       const missingCorrectAnswers = form.questions
         .map((question, index) => ({
           index,
@@ -198,7 +286,16 @@ export const AdminExamsPage = () => {
 
       const payload = {
         ...form,
-        questions: form.questions,
+        sections: trimmedSections.map(({ title, duration, cutoffMarks }) => ({
+          title,
+          duration,
+          cutoffMarks
+        })),
+        questions: form.questions.map((question) => ({
+          ...question,
+          section: question.section?.trim() || trimmedSections[0].title
+        })),
+        lockedUntil: form.lockedUntil ? new Date(form.lockedUntil).toISOString() : "",
         startTime: new Date(form.startTime).toISOString(),
         endTime: new Date(form.endTime).toISOString()
       };
@@ -261,7 +358,7 @@ export const AdminExamsPage = () => {
             <p className="section-kicker">Admin Builder</p>
             <h2 className="mt-5 text-3xl font-semibold text-white">{isEditing ? "Edit Exam" : "Create Exam"}</h2>
             <p className="mt-3 text-sm leading-6 text-muted">
-              Define metadata, scheduling, and question logic in one place with a cleaner builder rhythm.
+              Add playlist-style metadata, lock rules, and skip-friendly question settings in one place.
             </p>
           </div>
           {isEditing ? (
@@ -271,7 +368,7 @@ export const AdminExamsPage = () => {
           ) : null}
         </div>
 
-        <div className="mb-6 grid gap-3 sm:grid-cols-3">
+        <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {builderStats.map((item) => (
             <div key={item.label} className="metric-tile">
               <p className="text-xs uppercase tracking-[0.25em] text-muted">{item.label}</p>
@@ -282,37 +379,34 @@ export const AdminExamsPage = () => {
 
         <form className="space-y-6" onSubmit={onSubmit}>
           <div className="grid gap-4 md:grid-cols-2">
-            <Input
-              label="Title"
-              value={form.title}
-              onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-            />
-            <Input
-              label="Description"
-              value={form.description}
-              onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-            />
+            <Input label="Title" value={form.title} onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))} />
+            <Input label="Description" value={form.description} onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))} />
+            <Input label="Subject" value={form.subject} onChange={(event) => setForm((prev) => ({ ...prev, subject: event.target.value }))} placeholder="Reasoning, Physics" />
+            <Input label="Topic" value={form.topic} onChange={(event) => setForm((prev) => ({ ...prev, topic: event.target.value }))} placeholder="Algebra, Verbal Ability" />
+            <Input label="Playlist / Series" value={form.playlist} onChange={(event) => setForm((prev) => ({ ...prev, playlist: event.target.value }))} placeholder="Mock Set A, Crash Course" />
             <Input
               label="Duration (minutes)"
               type="number"
               min="1"
               value={form.duration}
-              onChange={(event) => setForm((prev) => ({ ...prev, duration: Number(event.target.value) }))}
+              onChange={(event) =>
+                setForm((prev) => {
+                  const nextDuration = Number(event.target.value);
+                  const nextSections =
+                    prev.sections.length === 1 && (prev.sections[0].title || "General").trim().toLowerCase() === "general"
+                      ? prev.sections.map((section) => ({ ...section, duration: nextDuration }))
+                      : prev.sections;
+
+                  return {
+                    ...prev,
+                    duration: nextDuration,
+                    sections: nextSections
+                  };
+                })
+              }
             />
-            <Input
-              label="Total Marks"
-              type="number"
-              min="1"
-              value={form.totalMarks}
-              onChange={(event) => setForm((prev) => ({ ...prev, totalMarks: Number(event.target.value) }))}
-            />
-            <Input
-              label="Negative Marking"
-              type="text"
-              value={form.negativeMarking}
-              onChange={(event) => setForm((prev) => ({ ...prev, negativeMarking: event.target.value }))}
-              placeholder="0, 0.25, 1/3"
-            />
+            <Input label="Total Marks" type="number" min="1" value={form.totalMarks} onChange={(event) => setForm((prev) => ({ ...prev, totalMarks: Number(event.target.value) }))} />
+            <Input label="Negative Marking" type="text" value={form.negativeMarking} onChange={(event) => setForm((prev) => ({ ...prev, negativeMarking: event.target.value }))} placeholder="0, 0.25, 1/3" />
             <label className="flex flex-col gap-2 text-sm text-muted">
               <span className="font-medium text-neutral-300">Allowed Attempts</span>
               <select
@@ -339,18 +433,103 @@ export const AdminExamsPage = () => {
                 <option value="completed">Completed</option>
               </select>
             </label>
-            <Input
-              label="Start Time"
-              type="datetime-local"
-              value={form.startTime}
-              onChange={(event) => setForm((prev) => ({ ...prev, startTime: event.target.value }))}
-            />
-            <Input
-              label="End Time"
-              type="datetime-local"
-              value={form.endTime}
-              onChange={(event) => setForm((prev) => ({ ...prev, endTime: event.target.value }))}
-            />
+            <Input label="Start Time" type="datetime-local" value={form.startTime} onChange={(event) => setForm((prev) => ({ ...prev, startTime: event.target.value }))} />
+            <Input label="End Time" type="datetime-local" value={form.endTime} onChange={(event) => setForm((prev) => ({ ...prev, endTime: event.target.value }))} />
+            <Input label="Locked Until (optional)" type="datetime-local" value={form.lockedUntil} onChange={(event) => setForm((prev) => ({ ...prev, lockedUntil: event.target.value }))} />
+            <label className="flex items-center gap-3 rounded-2xl border border-white/8 bg-black/25 px-4 py-3 text-sm text-neutral-200">
+              <input
+                type="checkbox"
+                checked={form.isLocked}
+                onChange={(event) => setForm((prev) => ({ ...prev, isLocked: event.target.checked }))}
+              />
+              Lock this exam manually until an admin unlocks it
+            </label>
+          </div>
+
+          <div className="rounded-[28px] border border-white/8 bg-black/30 p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.35em] text-muted">Section Rules</p>
+                <h3 className="mt-2 text-xl font-semibold text-white">Section-wise timer and cutoff setup</h3>
+                <p className="mt-2 text-sm leading-6 text-muted">
+                  Create timed sections, set cutoff marks, and map each question into one of these sections.
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                className="w-full sm:w-auto"
+                onClick={() =>
+                  setForm((prev) => ({
+                    ...prev,
+                    sections: [...prev.sections, createSection(`Section ${prev.sections.length + 1}`, 0, 0)]
+                  }))
+                }
+              >
+                Add Section
+              </Button>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {form.sections.map((section, index) => (
+                <div key={section._id || index} className="rounded-[24px] border border-white/8 bg-white/[0.03] p-4">
+                  <div className="grid gap-4 md:grid-cols-[1.3fr_0.8fr_0.8fr_auto]">
+                    <Input
+                      label="Section Title"
+                      value={section.title}
+                      onChange={(event) => onSectionChange(index, "title", event.target.value)}
+                      placeholder="General, Physics, Reasoning"
+                    />
+                    <Input
+                      label="Duration (minutes)"
+                      type="number"
+                      min="0"
+                      value={section.duration}
+                      onChange={(event) => onSectionChange(index, "duration", Number(event.target.value))}
+                    />
+                    <Input
+                      label="Cutoff Marks"
+                      type="number"
+                      min="0"
+                      value={section.cutoffMarks}
+                      onChange={(event) => onSectionChange(index, "cutoffMarks", Number(event.target.value))}
+                    />
+                    <div className="flex items-end">
+                      <Button
+                        variant="secondary"
+                        className="w-full"
+                        onClick={() =>
+                          setForm((prev) => {
+                            if (prev.sections.length === 1) {
+                              return prev;
+                            }
+
+                            const nextSections = prev.sections.filter((_, sectionIndex) => sectionIndex !== index);
+                            const fallbackSection = nextSections[0]?.title || "General";
+
+                            return {
+                              ...prev,
+                              sections: nextSections,
+                              questions: prev.questions.map((question) =>
+                                question.section === section.title
+                                  ? { ...question, section: fallbackSection }
+                                  : question
+                              )
+                            };
+                          })
+                        }
+                        disabled={form.sections.length === 1}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <p className="mt-4 text-sm text-muted">
+              Current section total: {form.sections.reduce((total, section) => total + Number(section.duration || 0), 0)} / {form.duration} minutes
+            </p>
           </div>
 
           <div className="rounded-[28px] border border-white/8 bg-black/30 p-5">
@@ -359,8 +538,7 @@ export const AdminExamsPage = () => {
                 <p className="text-xs uppercase tracking-[0.35em] text-muted">Question Import</p>
                 <h3 className="mt-2 text-xl font-semibold text-white">Paste or upload questions</h3>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-                  Import questions from pasted text, a `.txt` file, or a Word `.docx` file. Use blank lines between
-                  questions and option labels like `A.`, `B.`, `C.` with an `Answer:` line.
+                  Import questions from pasted text, a `.txt` file, or a Word `.docx` file. Imported questions keep skip enabled by default.
                 </p>
               </div>
 
@@ -396,12 +574,7 @@ export const AdminExamsPage = () => {
 
                 <label className="flex cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed border-white/12 px-4 py-8 text-center text-sm text-muted hover:border-white/28">
                   <span>{importFile ? importFile.name : "Choose a .txt or .docx file"}</span>
-                  <input
-                    type="file"
-                    accept=".txt,.docx"
-                    className="hidden"
-                    onChange={(event) => setImportFile(event.target.files?.[0] || null)}
-                  />
+                  <input type="file" accept=".txt,.docx" className="hidden" onChange={(event) => setImportFile(event.target.files?.[0] || null)} />
                 </label>
 
                 <div className="rounded-[24px] border border-white/8 bg-black/30 p-4">
@@ -428,6 +601,7 @@ export const AdminExamsPage = () => {
                 key={question._id || index}
                 question={question}
                 index={index}
+                availableSections={sectionTitles}
                 onChange={onQuestionChange}
                 onRemove={(removeIndex) =>
                   setForm((prev) => ({
@@ -449,7 +623,10 @@ export const AdminExamsPage = () => {
               onClick={() =>
                 setForm((prev) => ({
                   ...prev,
-                  questions: [...prev.questions, createQuestion()]
+                  questions: [
+                    ...prev.questions,
+                    { ...createQuestion(), section: prev.sections[0]?.title || "General" }
+                  ]
                 }))
               }
             >
@@ -468,15 +645,10 @@ export const AdminExamsPage = () => {
           <div>
             <p className="section-kicker">Exam Library</p>
             <h2 className="mt-5 text-3xl font-semibold text-white">All Exams</h2>
-            <p className="mt-3 text-sm leading-6 text-muted">Search, edit, and clean up published or draft assessments.</p>
+            <p className="mt-3 text-sm leading-6 text-muted">Search by title, subject, topic, playlist, or status.</p>
           </div>
           <div className="w-full max-w-sm">
-            <Input
-              label="Search exams"
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              placeholder="Filter by title, description, or status"
-            />
+            <Input label="Search exams" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter by title, subject, playlist, topic, or status" />
           </div>
         </div>
 
@@ -494,12 +666,16 @@ export const AdminExamsPage = () => {
                         <span className="soft-chip">{exam.status}</span>
                       </div>
                       <p className="mt-3 text-sm leading-6 text-muted">{exam.description}</p>
-                      <p className="mt-3 text-sm text-muted">
+                      <p className="mt-3 text-sm text-muted">{[exam.subject, exam.topic, exam.playlist].filter(Boolean).join(" | ") || "No subject tags yet"}</p>
+                      <p className="mt-1 text-sm text-muted">
                         {exam.questions.length} questions | {exam.duration} minutes | {exam.totalMarks} marks
                       </p>
-                      <p className="text-sm text-muted">
-                        {formatDateTime(exam.startTime)} to {formatDateTime(exam.endTime)}
-                      </p>
+                      <p className="text-sm text-muted">{formatDateTime(exam.startTime)} to {formatDateTime(exam.endTime)}</p>
+                      {exam.isLocked || exam.lockedUntil ? (
+                        <p className="mt-1 text-sm text-amber-200">
+                          Locked {exam.lockedUntil ? `until ${formatDateTime(exam.lockedUntil)}` : "until admin unlocks"}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex flex-col gap-3 sm:flex-row">
                       <Button variant="secondary" className="w-full sm:w-auto" onClick={() => onEdit(exam)}>
@@ -519,7 +695,7 @@ export const AdminExamsPage = () => {
               description={
                 filter
                   ? "Try a different search term or clear the filter."
-                  : "Create your first exam to unlock scheduling, results, and analytics."
+                  : "Create your first exam to unlock scheduling, playlists, results, and analytics."
               }
             />
           )}

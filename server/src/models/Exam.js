@@ -45,9 +45,39 @@ const questionSchema = new mongoose.Schema(
     explanation: {
       type: String,
       default: ""
+    },
+    section: {
+      type: String,
+      default: "General",
+      trim: true
+    },
+    enableSkipOption: {
+      type: Boolean,
+      default: true
     }
   },
   { _id: true }
+);
+
+const sectionSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    duration: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    cutoffMarks: {
+      type: Number,
+      default: 0,
+      min: 0
+    }
+  },
+  { _id: false }
 );
 
 const examSchema = new mongoose.Schema(
@@ -60,6 +90,21 @@ const examSchema = new mongoose.Schema(
     description: {
       type: String,
       default: ""
+    },
+    subject: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    topic: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    playlist: {
+      type: String,
+      default: "",
+      trim: true
     },
     duration: {
       type: Number,
@@ -86,6 +131,14 @@ const examSchema = new mongoose.Schema(
       enum: ["draft", "published", "completed"],
       default: "draft"
     },
+    isLocked: {
+      type: Boolean,
+      default: false
+    },
+    lockedUntil: {
+      type: Date,
+      default: null
+    },
     startTime: {
       type: Date,
       required: true
@@ -105,6 +158,10 @@ const examSchema = new mongoose.Schema(
     },
     questions: {
       type: [questionSchema],
+      default: []
+    },
+    sections: {
+      type: [sectionSchema],
       default: []
     }
   },

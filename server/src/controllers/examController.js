@@ -1,12 +1,16 @@
 import mongoose from "mongoose";
+import mammoth from "mammoth";
 import Exam from "../models/Exam.js";
 import Result from "../models/Result.js";
 import User from "../models/User.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
-import { calculateResultStats, getMaximumMarks, sanitizeExamForCandidate } from "../utils/examHelpers.js";
+import {
+  calculateResultStats,
+  getMaximumMarks,
+  sanitizeExamForCandidate
+} from "../utils/examHelpers.js";
 import { parseFlexibleNumber } from "../utils/numberParser.js";
 import { parseImportedQuestions } from "../utils/questionImportParser.js";
-import mammoth from "mammoth";
 
 const validateSchedule = (startTime, endTime) => {
   if (new Date(startTime) >= new Date(endTime)) {
@@ -14,7 +18,38 @@ const validateSchedule = (startTime, endTime) => {
   }
 };
 
-const validateExamPayload = ({ title, duration, totalMarks, negativeMarking, questions = [], status }) => {
+const parseAttemptLimit = (value) => {
+  if (value === "unlimited") {
+    return 0;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
+};
+
+const normalizeSections = (sections = [], questions = [], duration = 0) => {
+  const normalizedSections = (sections || [])
+    .map((section) => ({
+      title: section.title?.trim() || "",
+      duration: parseFlexibleNumber(section.duration || 0),
+      cutoffMarks: parseFlexibleNumber(section.cutoffMarks || 0)
+    }))
+    .filter((section) => section.title);
+
+  if (normalizedSections.length > 0) {
+    return normalizedSections;
+  }
+
+  const uniqueTitles = [...new Set((questions || []).map((question) => question.section?.trim() || "General"))];
+
+  return uniqueTitles.map((title, index) => ({
+    title,
+    duration: index === 0 ? parseFlexibleNumber(duration || 0) : 0,
+    cutoffMarks: 0
+  }));
+};
+
+const validateExamPayload = ({ title, duration, totalMarks, negativeMarking, questions = [], status, sections = [] }) => {
   const parsedDuration = parseFlexibleNumber(duration);
   const parsedTotalMarks = parseFlexibleNumber(totalMarks);
   const parsedNegativeMarking = parseFlexibleNumber(negativeMarking);
@@ -39,9 +74,45 @@ const validateExamPayload = ({ title, duration, totalMarks, negativeMarking, que
     throw new Error("Published exams must contain at least one question");
   }
 
+  const normalizedSections = normalizeSections(sections, questions, parsedDuration);
+  const seenSectionTitles = new Set();
+
+  normalizedSections.forEach((section) => {
+    const lowerTitle = section.title.toLowerCase();
+
+    if (seenSectionTitles.has(lowerTitle)) {
+      throw new Error(`Duplicate section title: ${section.title}`);
+    }
+
+    if (!Number.isFinite(section.duration) || section.duration < 0) {
+      throw new Error(`Section "${section.title}" must have a valid duration`);
+    }
+
+    if (!Number.isFinite(section.cutoffMarks) || section.cutoffMarks < 0) {
+      throw new Error(`Section "${section.title}" must have a valid cutoff`);
+    }
+
+    seenSectionTitles.add(lowerTitle);
+  });
+
+  const totalSectionDuration = normalizedSections.reduce((sum, section) => sum + section.duration, 0);
+  if (Math.round(totalSectionDuration) !== Math.round(parsedDuration)) {
+    throw new Error("The sum of section durations must match the overall exam duration");
+  }
+
+  const definedSections = new Set(normalizedSections.map((section) => section.title.toLowerCase()));
+
   questions.forEach((question, index) => {
     if (!question.prompt?.trim()) {
       throw new Error(`Question ${index + 1}: prompt is required`);
+    }
+
+    if (!question.section?.trim()) {
+      throw new Error(`Question ${index + 1}: section is required`);
+    }
+
+    if (!definedSections.has(question.section.trim().toLowerCase())) {
+      throw new Error(`Question ${index + 1}: section "${question.section}" is not defined in section rules`);
     }
 
     if (!Array.isArray(question.options) || question.options.length < 2) {
@@ -57,15 +128,6 @@ const validateExamPayload = ({ title, duration, totalMarks, negativeMarking, que
       throw new Error(`Question ${index + 1}: select at least one correct option`);
     }
   });
-};
-
-const parseAttemptLimit = (value) => {
-  if (value === "unlimited") {
-    return 0;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
 };
 
 const normalizeQuestions = (questions = []) =>
@@ -90,15 +152,17 @@ const normalizeQuestions = (questions = []) =>
 
     return {
       prompt: question.prompt,
+      section: question.section?.trim() || "General",
       type: question.type,
       marks: parseFlexibleNumber(question.marks || 1),
       explanation: question.explanation || "",
+      enableSkipOption: question.enableSkipOption !== false,
       options: normalizedOptions,
       correctOptionIds
     };
   });
 
-const buildAttemptMeta = (exam, submittedAttempts) => {
+const buildAttemptMeta = (exam, submittedAttempts, activeAttempt = null) => {
   const maxAttempts = Number(exam.maxAttempts || 0);
   const attemptsUsed = submittedAttempts;
   const attemptsRemaining = maxAttempts === 0 ? null : Math.max(maxAttempts - attemptsUsed, 0);
@@ -107,34 +171,66 @@ const buildAttemptMeta = (exam, submittedAttempts) => {
     maxAttempts,
     attemptsUsed,
     attemptsRemaining,
-    hasUnlimitedAttempts: maxAttempts === 0
+    hasUnlimitedAttempts: maxAttempts === 0,
+    hasActiveAttempt: Boolean(activeAttempt),
+    activeAttemptId: activeAttempt?._id || null,
+    activeAttemptStartedAt: activeAttempt?.startedAt || null
   };
 };
 
-const enrichExamWithAttemptMeta = (exam, submittedAttempts) => ({
-  ...(exam.toObject ? exam.toObject() : exam),
-  ...buildAttemptMeta(exam, submittedAttempts)
-});
+const getLockState = (exam) => {
+  const lockedUntil = exam.lockedUntil ? new Date(exam.lockedUntil) : null;
+  const lockedByTime = lockedUntil && lockedUntil.getTime() > Date.now();
+
+  return {
+    isLocked: Boolean(exam.isLocked || lockedByTime),
+    lockedUntil
+  };
+};
 
 export const createExam = asyncHandler(async (req, res) => {
-  const { title, description, duration, totalMarks, negativeMarking, startTime, endTime, status, questions } =
-    req.body;
+  const {
+    title,
+    description,
+    subject,
+    topic,
+    playlist,
+    duration,
+    totalMarks,
+    negativeMarking,
+    startTime,
+    endTime,
+    status,
+    questions,
+    sections,
+    isLocked,
+    lockedUntil
+  } = req.body;
 
   validateSchedule(startTime, endTime);
-  validateExamPayload({ title, duration, totalMarks, negativeMarking, questions, status });
+  validateExamPayload({ title, duration, totalMarks, negativeMarking, questions, status, sections });
+
+  const normalizedQuestions = normalizeQuestions(questions || []);
+  const normalizedSections = normalizeSections(sections || [], normalizedQuestions, duration);
 
   const exam = await Exam.create({
     title,
     description,
+    subject,
+    topic,
+    playlist,
     duration: parseFlexibleNumber(duration),
-    totalMarks: questions?.length ? getMaximumMarks({ questions }) : parseFlexibleNumber(totalMarks),
+    totalMarks: normalizedQuestions.length ? getMaximumMarks({ questions: normalizedQuestions }) : parseFlexibleNumber(totalMarks),
     negativeMarking: parseFlexibleNumber(negativeMarking),
     maxAttempts: parseAttemptLimit(req.body.maxAttempts),
+    isLocked: Boolean(isLocked),
+    lockedUntil: lockedUntil || null,
     startTime,
     endTime,
     status: status || "draft",
     createdBy: req.user._id,
-    questions: normalizeQuestions(questions || [])
+    questions: normalizedQuestions,
+    sections: normalizedSections
   });
 
   res.status(201).json(exam);
@@ -142,7 +238,7 @@ export const createExam = asyncHandler(async (req, res) => {
 
 export const getAdminExams = asyncHandler(async (req, res) => {
   const exams = await Exam.find().populate("createdBy", "name email").sort({ createdAt: -1 }).lean();
-  res.json(exams);
+  res.json(exams.map((exam) => ({ ...exam, ...getLockState(exam) })));
 });
 
 export const getAvailableExams = asyncHandler(async (req, res) => {
@@ -156,13 +252,22 @@ export const getAvailableExams = asyncHandler(async (req, res) => {
     .sort({ startTime: 1 });
 
   const examIds = exams.map((exam) => exam._id);
-  const submittedResults = await Result.find({
-    user: req.user._id,
-    exam: { $in: examIds },
-    isSubmitted: true
-  })
-    .select("exam")
-    .lean();
+  const [submittedResults, activeAttempts] = await Promise.all([
+    Result.find({
+      user: req.user._id,
+      exam: { $in: examIds },
+      isSubmitted: true
+    })
+      .select("exam")
+      .lean(),
+    Result.find({
+      user: req.user._id,
+      exam: { $in: examIds },
+      isSubmitted: false
+    })
+      .select("_id exam startedAt")
+      .lean()
+  ]);
 
   const submittedAttemptMap = submittedResults.reduce((accumulator, result) => {
     const examId = result.exam.toString();
@@ -170,10 +275,16 @@ export const getAvailableExams = asyncHandler(async (req, res) => {
     return accumulator;
   }, {});
 
+  const activeAttemptMap = activeAttempts.reduce((accumulator, result) => {
+    accumulator[result.exam.toString()] = result;
+    return accumulator;
+  }, {});
+
   res.json(
     exams.map((exam) => ({
       ...exam.toObject(),
-      ...buildAttemptMeta(exam, submittedAttemptMap[exam._id.toString()] || 0)
+      ...getLockState(exam),
+      ...buildAttemptMeta(exam, submittedAttemptMap[exam._id.toString()] || 0, activeAttemptMap[exam._id.toString()] || null)
     }))
   );
 });
@@ -187,18 +298,26 @@ export const getExamById = asyncHandler(async (req, res) => {
   }
 
   if (req.user.role === "admin") {
-    return res.json(exam);
+    return res.json({ ...exam.toObject(), ...getLockState(exam) });
   }
 
-  const submittedAttempts = await Result.countDocuments({
-    exam: exam._id,
-    user: req.user._id,
-    isSubmitted: true
-  });
+  const [submittedAttempts, activeAttempt] = await Promise.all([
+    Result.countDocuments({
+      exam: exam._id,
+      user: req.user._id,
+      isSubmitted: true
+    }),
+    Result.findOne({
+      exam: exam._id,
+      user: req.user._id,
+      isSubmitted: false
+    }).select("_id startedAt")
+  ]);
 
   return res.json({
     ...sanitizeExamForCandidate(exam),
-    ...buildAttemptMeta(exam, submittedAttempts)
+    ...getLockState(exam),
+    ...buildAttemptMeta(exam, submittedAttempts, activeAttempt)
   });
 });
 
@@ -222,14 +341,17 @@ export const updateExam = asyncHandler(async (req, res) => {
     totalMarks: payload.totalMarks ?? exam.totalMarks,
     negativeMarking: payload.negativeMarking ?? exam.negativeMarking,
     questions: payload.questions ?? exam.questions,
-    status: payload.status ?? exam.status
+    status: payload.status ?? exam.status,
+    sections: payload.sections ?? exam.sections
   });
 
-  const nextPayload = {
+  const normalizedQuestions = payload.questions ? normalizeQuestions(payload.questions) : exam.questions;
+
+  Object.assign(exam, {
     ...payload,
     duration: payload.duration !== undefined ? parseFlexibleNumber(payload.duration) : exam.duration,
     totalMarks: payload.questions
-      ? getMaximumMarks({ questions: payload.questions })
+      ? getMaximumMarks({ questions: normalizedQuestions })
       : payload.totalMarks !== undefined
         ? parseFlexibleNumber(payload.totalMarks)
         : exam.totalMarks,
@@ -238,12 +360,16 @@ export const updateExam = asyncHandler(async (req, res) => {
         ? parseFlexibleNumber(payload.negativeMarking)
         : exam.negativeMarking,
     maxAttempts: payload.maxAttempts !== undefined ? parseAttemptLimit(payload.maxAttempts) : exam.maxAttempts,
-    questions: payload.questions ? normalizeQuestions(payload.questions) : exam.questions
-  };
+    isLocked: payload.isLocked !== undefined ? Boolean(payload.isLocked) : exam.isLocked,
+    lockedUntil: payload.lockedUntil !== undefined ? payload.lockedUntil || null : exam.lockedUntil,
+    questions: normalizedQuestions,
+    sections:
+      payload.sections !== undefined || payload.questions
+        ? normalizeSections(payload.sections ?? exam.sections, normalizedQuestions, payload.duration ?? exam.duration)
+        : exam.sections
+  });
 
-  Object.assign(exam, nextPayload);
   await exam.save();
-
   res.json(exam);
 });
 
@@ -270,6 +396,7 @@ export const addQuestionsToExam = asyncHandler(async (req, res) => {
   }
 
   exam.questions = normalizeQuestions(req.body.questions || []);
+  exam.sections = normalizeSections(exam.sections, exam.questions, exam.duration);
   await exam.save();
 
   res.json(exam);
@@ -284,10 +411,21 @@ export const startExamAttempt = asyncHandler(async (req, res) => {
   }
 
   const now = new Date();
+  const lockState = getLockState(exam);
 
   if (exam.status !== "published" || now < exam.startTime || now > exam.endTime) {
     res.status(400);
     throw new Error("Exam is not active right now");
+  }
+
+  if (lockState.isLocked) {
+    return res.status(423).json({
+      message: lockState.lockedUntil
+        ? `This exam is locked until ${lockState.lockedUntil.toLocaleString()}.`
+        : "This exam is currently locked by the admin.",
+      isLocked: true,
+      lockedUntil: lockState.lockedUntil
+    });
   }
 
   const [submittedAttempts, activeAttempt] = await Promise.all([
@@ -318,6 +456,7 @@ export const startExamAttempt = asyncHandler(async (req, res) => {
       answers: orderedQuestions.map((question) => ({
         questionId: question._id,
         selectedOptionIds: [],
+        isSkipped: false,
         visited: false
       })),
       startedAt: now
@@ -327,12 +466,14 @@ export const startExamAttempt = asyncHandler(async (req, res) => {
   res.json({
     exam: {
       ...sanitizeExamForCandidate(exam, result.answers.map((answer) => answer.questionId)),
-      ...buildAttemptMeta(exam, submittedAttempts)
+      ...lockState,
+      ...buildAttemptMeta(exam, submittedAttempts, activeAttempt)
     },
     resultId: result._id,
     attemptNumber: result.attemptNumber,
     tabSwitchCount: result.tabSwitchCount,
     startedAt: result.startedAt,
+    isResumedAttempt: Boolean(activeAttempt),
     answers: result.answers
   });
 });
@@ -346,9 +487,9 @@ export const saveAnswer = asyncHandler(async (req, res) => {
     markedForReview = false,
     tabSwitched = false,
     fullscreenEntered = false,
-    fullscreenExited = false
-  } =
-    req.body;
+    fullscreenExited = false,
+    isSkipped = false
+  } = req.body;
 
   const result = await Result.findOne({ _id: resultId, user: req.user._id });
 
@@ -388,8 +529,9 @@ export const saveAnswer = asyncHandler(async (req, res) => {
     allowedOptionIds.has(id)
   );
 
-  answer.selectedOptionIds = normalizedSelections;
+  answer.selectedOptionIds = isSkipped ? [] : normalizedSelections;
   answer.visited = visited;
+  answer.isSkipped = Boolean(isSkipped);
   answer.markedForReview = markedForReview;
 
   if (tabSwitched) {
@@ -439,6 +581,7 @@ export const submitExam = asyncHandler(async (req, res) => {
   result.incorrectCount = stats.incorrectCount;
   result.unansweredCount = stats.unansweredCount;
   result.percentage = stats.percentage;
+  result.sectionScores = stats.sectionScores;
   result.submittedAt = new Date();
   result.isSubmitted = true;
 
@@ -485,6 +628,10 @@ export const importQuestions = asyncHandler(async (req, res) => {
     }
   }
 
-  const questions = parseImportedQuestions(sourceText);
+  const questions = parseImportedQuestions(sourceText).map((question) => ({
+    ...question,
+    section: question.section || "General",
+    enableSkipOption: question.enableSkipOption !== false
+  }));
   res.json({ questions });
 });

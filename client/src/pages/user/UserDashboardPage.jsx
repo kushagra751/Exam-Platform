@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { ErrorState } from "../../components/ui/ErrorState";
 import { Loader } from "../../components/ui/Loader";
+import { Input } from "../../components/ui/Input";
 import { getRequestErrorMessage } from "../../utils/errors";
 import { formatDateTime, getExamState } from "../../utils/format";
 
@@ -13,6 +14,9 @@ export const UserDashboardPage = () => {
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState("all");
+  const [playlistFilter, setPlaylistFilter] = useState("all");
 
   useEffect(() => {
     const load = async () => {
@@ -29,40 +33,78 @@ export const UserDashboardPage = () => {
     load();
   }, []);
 
-  const stats = useMemo(() => {
-    const live = exams.filter((exam) => getExamState(exam) === "live").length;
-    const upcoming = exams.filter((exam) => getExamState(exam) === "upcoming").length;
-    const avgDuration = exams.length
-      ? Math.round(exams.reduce((total, exam) => total + exam.duration, 0) / exams.length)
-      : 0;
+  const subjects = useMemo(
+    () => ["all", ...new Set(exams.map((exam) => exam.subject).filter(Boolean))],
+    [exams]
+  );
+  const playlists = useMemo(
+    () => ["all", ...new Set(exams.map((exam) => exam.playlist).filter(Boolean))],
+    [exams]
+  );
 
-    return [
-      { label: "Live Exams", value: live || 0 },
-      { label: "Upcoming", value: upcoming || 0 },
-      { label: "Avg. Duration", value: `${avgDuration || 0} min` }
-    ];
-  }, [exams]);
+  const filteredExams = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return exams.filter((exam) => {
+      const matchesSearch =
+        !query ||
+        [exam.title, exam.description, exam.subject, exam.topic, exam.playlist]
+          .filter(Boolean)
+          .some((value) => value.toLowerCase().includes(query));
+      const matchesSubject = subjectFilter === "all" || exam.subject === subjectFilter;
+      const matchesPlaylist = playlistFilter === "all" || exam.playlist === playlistFilter;
+
+      return matchesSearch && matchesSubject && matchesPlaylist;
+    });
+  }, [exams, playlistFilter, search, subjectFilter]);
 
   return (
-    <div className="space-y-6">
-      <Card className="rounded-[32px] p-6 sm:p-7">
-        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div className="max-w-2xl">
-            <p className="section-kicker">Candidate View</p>
-            <h2 className="mt-5 text-3xl font-semibold text-white sm:text-4xl">Available exams, clearer at a glance</h2>
-            <p className="mt-4 text-sm leading-7 text-muted">
-              Jump into active exams quickly, check schedules without clutter, and stay oriented with a cleaner card
-              layout that works well on mobile too.
+    <div className="space-y-5">
+      <Card className="rounded-[28px] p-5 sm:p-6">
+        <div className="space-y-4">
+          <div>
+            <p className="section-kicker">Exam Finder</p>
+            <h2 className="mt-4 text-2xl font-semibold text-white sm:text-3xl">Pick by subject, topic, or playlist</h2>
+            <p className="mt-3 text-sm leading-6 text-muted">
+              Mobile-first exam browsing with fewer distractions. Find the exam you want faster, then jump straight into the attempt.
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[420px]">
-            {stats.map((item) => (
-              <div key={item.label} className="metric-tile">
-                <p className="text-xs uppercase tracking-[0.25em] text-muted">{item.label}</p>
-                <p className="mt-3 text-2xl font-semibold text-white">{item.value}</p>
-              </div>
-            ))}
+          <div className="grid gap-3 md:grid-cols-3">
+            <Input
+              label="Search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search title, subject, or topic"
+            />
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              <span className="font-medium text-neutral-300">Subject</span>
+              <select
+                className="min-h-[52px] rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white outline-none transition focus:border-white/25 focus:bg-black/45"
+                value={subjectFilter}
+                onChange={(event) => setSubjectFilter(event.target.value)}
+              >
+                {subjects.map((subject) => (
+                  <option key={subject} value={subject}>
+                    {subject === "all" ? "All subjects" : subject}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-2 text-sm text-muted">
+              <span className="font-medium text-neutral-300">Playlist</span>
+              <select
+                className="min-h-[52px] rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white outline-none transition focus:border-white/25 focus:bg-black/45"
+                value={playlistFilter}
+                onChange={(event) => setPlaylistFilter(event.target.value)}
+              >
+                {playlists.map((playlist) => (
+                  <option key={playlist} value={playlist}>
+                    {playlist === "all" ? "All playlists" : playlist}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
       </Card>
@@ -71,60 +113,70 @@ export const UserDashboardPage = () => {
         <Loader label="Loading available exams..." />
       ) : error ? (
         <ErrorState title="Access Issue" description={error} />
-      ) : exams.length ? (
-        <div className="grid gap-5 xl:grid-cols-2">
-          {exams.map((exam) => {
+      ) : filteredExams.length ? (
+        <div className="space-y-4">
+          {filteredExams.map((exam) => {
             const state = getExamState(exam);
+            const isLocked = exam.isLocked || (exam.lockedUntil && new Date(exam.lockedUntil) > new Date());
 
             return (
-              <Card key={exam._id} className="rounded-[32px] p-6">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
+              <Card key={exam._id} className="rounded-[28px] p-5">
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="soft-chip">{state}</span>
-                    <h3 className="mt-4 text-2xl font-semibold text-white">{exam.title}</h3>
-                    <p className="mt-3 text-sm leading-6 text-muted">{exam.description}</p>
+                    {exam.subject ? <span className="soft-chip">{exam.subject}</span> : null}
+                    {exam.topic ? <span className="soft-chip">{exam.topic}</span> : null}
+                    {exam.playlist ? <span className="soft-chip">{exam.playlist}</span> : null}
+                    {isLocked ? <span className="soft-chip bg-amber-500/10 text-amber-200">Locked</span> : null}
+                    {exam.hasActiveAttempt ? <span className="soft-chip bg-sky-500/10 text-sky-200">Resume available</span> : null}
                   </div>
 
-                  <div className="metric-tile min-w-[120px] self-start text-center">
-                    <p className="text-xs uppercase tracking-[0.25em] text-muted">Duration</p>
-                    <p className="mt-2 text-2xl font-semibold text-white">{exam.duration}</p>
-                    <p className="text-xs text-muted">minutes</p>
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">{exam.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-muted">{exam.description}</p>
                   </div>
-                </div>
 
-                <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                  <div className="metric-tile">
-                    <p className="text-xs uppercase tracking-[0.25em] text-muted">Total Marks</p>
-                    <p className="mt-2 text-lg font-semibold text-white">{exam.totalMarks}</p>
+                  <div className="grid grid-cols-2 gap-3 text-sm text-muted">
+                    <div className="metric-tile">
+                      <p>Duration</p>
+                      <p className="mt-2 text-lg font-semibold text-white">{exam.duration} min</p>
+                    </div>
+                    <div className="metric-tile">
+                      <p>Negative Marking</p>
+                      <p className="mt-2 text-lg font-semibold text-white">{exam.negativeMarking}</p>
+                    </div>
+                    <div className="metric-tile">
+                      <p>Start</p>
+                      <p className="mt-2 text-sm leading-6 text-white">{formatDateTime(exam.startTime)}</p>
+                    </div>
+                    <div className="metric-tile">
+                      <p>End</p>
+                      <p className="mt-2 text-sm leading-6 text-white">{formatDateTime(exam.endTime)}</p>
+                    </div>
                   </div>
-                  <div className="metric-tile">
-                    <p className="text-xs uppercase tracking-[0.25em] text-muted">Negative Marking</p>
-                    <p className="mt-2 text-lg font-semibold text-white">{exam.negativeMarking}</p>
-                  </div>
-                  <div className="metric-tile">
-                    <p className="text-xs uppercase tracking-[0.25em] text-muted">Starts</p>
-                    <p className="mt-2 text-sm leading-6 text-white">{formatDateTime(exam.startTime)}</p>
-                  </div>
-                  <div className="metric-tile">
-                    <p className="text-xs uppercase tracking-[0.25em] text-muted">Ends</p>
-                    <p className="mt-2 text-sm leading-6 text-white">{formatDateTime(exam.endTime)}</p>
-                  </div>
-                </div>
 
-                <div className="glass-divider mt-6" />
+                  {isLocked ? (
+                    <p className="text-sm text-amber-200">
+                      {exam.lockedUntil
+                        ? `This exam is locked until ${formatDateTime(exam.lockedUntil)}.`
+                        : "This exam is currently locked by the admin."}
+                    </p>
+                  ) : null}
 
-                <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-muted">Open the instructions page to review rules before your attempt begins.</p>
-                  <Link to={`/exam/${exam._id}/instructions`} className="block">
-                    <Button className="w-full sm:w-auto">Start Exam</Button>
-                  </Link>
+                  <div>
+                    <Link to={`/exam/${exam._id}/instructions`} className="block">
+                      <Button className="w-full" disabled={isLocked}>
+                        {isLocked ? "Locked" : exam.hasActiveAttempt ? "Resume Exam" : "Start Exam"}
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
               </Card>
             );
           })}
         </div>
       ) : (
-        <EmptyState title="No live exams" description="Published exams become visible here during their active window." />
+        <EmptyState title="No matching exams" description="Try a different subject, playlist, or search term." />
       )}
     </div>
   );

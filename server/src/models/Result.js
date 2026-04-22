@@ -22,9 +22,47 @@ const answerSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    isSkipped: {
+      type: Boolean,
+      default: false
+    },
     markedForReview: {
       type: Boolean,
       default: false
+    }
+  },
+  { _id: false }
+);
+
+const sectionScoreSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: true
+    },
+    score: {
+      type: Number,
+      default: 0
+    },
+    correctCount: {
+      type: Number,
+      default: 0
+    },
+    incorrectCount: {
+      type: Number,
+      default: 0
+    },
+    unansweredCount: {
+      type: Number,
+      default: 0
+    },
+    cutoffMarks: {
+      type: Number,
+      default: 0
+    },
+    passedCutoff: {
+      type: Boolean,
+      default: true
     }
   },
   { _id: false }
@@ -77,6 +115,10 @@ const resultSchema = new mongoose.Schema(
     percentage: {
       type: Number,
       default: 0
+    },
+    sectionScores: {
+      type: [sectionScoreSchema],
+      default: []
     },
     isSubmitted: {
       type: Boolean,

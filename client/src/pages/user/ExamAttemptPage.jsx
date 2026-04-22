@@ -15,6 +15,35 @@ import { formatCountdown, getTimeRemainingInSeconds } from "../../utils/format";
 
 const getOptionLabel = (index) => String.fromCharCode(65 + index);
 
+const getElapsedSeconds = (startedAt) => Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
+
+const getSectionTiming = (sections = [], startedAt) => {
+  const elapsed = getElapsedSeconds(startedAt);
+  let consumed = 0;
+
+  for (let index = 0; index < sections.length; index += 1) {
+    const section = sections[index];
+    const sectionDurationSeconds = Number(section.duration || 0) * 60;
+    const sectionEnd = consumed + sectionDurationSeconds;
+
+    if (elapsed < sectionEnd || index === sections.length - 1) {
+      return {
+        activeSectionIndex: index,
+        elapsed,
+        sectionRemainingSeconds: Math.max(0, sectionEnd - elapsed)
+      };
+    }
+
+    consumed = sectionEnd;
+  }
+
+  return {
+    activeSectionIndex: 0,
+    elapsed,
+    sectionRemainingSeconds: 0
+  };
+};
+
 export const ExamAttemptPage = () => {
   const { examId } = useParams();
   const navigate = useNavigate();
@@ -61,6 +90,7 @@ export const ExamAttemptPage = () => {
       questionId,
       selectedOptionIds: answer.selectedOptionIds,
       visited: true,
+      isSkipped: answer.isSkipped,
       markedForReview: answer.markedForReview,
       tabSwitched,
       fullscreenEntered,
@@ -74,9 +104,6 @@ export const ExamAttemptPage = () => {
   const requestFullscreen = async () => {
     if (!fullscreenSupported) {
       setNeedsFullscreen(false);
-      setFullscreenWarning(
-        "Your browser does not support fullscreen mode. You can continue in standard view while activity is still tracked."
-      );
       return;
     }
 
@@ -87,7 +114,6 @@ export const ExamAttemptPage = () => {
 
       if (!wasFullscreenRef.current) {
         const questionId = attemptRef.current?.exam?.questions?.[currentIndexRef.current]?._id;
-
         wasFullscreenRef.current = true;
 
         if (questionId) {
@@ -99,7 +125,7 @@ export const ExamAttemptPage = () => {
       setFullscreenWarning("");
     } catch (fullscreenError) {
       setNeedsFullscreen(true);
-      setFullscreenWarning("Fullscreen could not start automatically. Tap the button below to continue.");
+      setFullscreenWarning("Fullscreen could not start automatically. Tap below to continue.");
     }
   };
 
@@ -110,12 +136,12 @@ export const ExamAttemptPage = () => {
         const mappedAnswers = data.answers.map((answer) => ({
           ...answer,
           questionId: answer.questionId.toString(),
-          selectedOptionIds: answer.selectedOptionIds.map((id) => id.toString())
+          selectedOptionIds: answer.selectedOptionIds.map((id) => id.toString()),
+          isSkipped: Boolean(answer.isSkipped)
         }));
 
         attemptRef.current = data;
         answersRef.current = mappedAnswers;
-        currentIndexRef.current = 0;
         setAttempt(data);
         setAnswers(mappedAnswers);
         syncAttemptCounters(data);
@@ -123,10 +149,6 @@ export const ExamAttemptPage = () => {
 
         if (fullscreenSupported) {
           await requestFullscreen();
-        } else {
-          setFullscreenWarning(
-            "Fullscreen controls are limited in this browser. The exam will stay usable and tab switching will still be tracked."
-          );
         }
       } catch (requestError) {
         if (requestError.response?.data?.alreadySubmitted && requestError.response?.data?.resultId) {
@@ -141,7 +163,7 @@ export const ExamAttemptPage = () => {
     };
 
     loadAttempt();
-  }, [examId, fullscreenSupported, navigate]);
+  }, [examId, navigate]);
 
   useEffect(() => {
     attemptRef.current = attempt;
@@ -191,32 +213,23 @@ export const ExamAttemptPage = () => {
 
       const activeQuestionId = attemptRef.current.exam.questions[currentIndexRef.current]?._id;
 
-      setTabWarning("Warning: tab switching was detected. Return to the exam and continue in fullscreen.");
+      setTabWarning("Tab switching detected. Return to the exam to continue.");
       setNeedsFullscreen(true);
       setFullscreenWarning("You left the exam screen. Re-enter fullscreen before continuing.");
 
       if (getFullscreenElement()) {
-        try {
-          await exitDocumentFullscreen();
-        } catch (fullscreenError) {
-          // Ignore exit failures. The secure-mode overlay still protects the exam flow.
-        }
+        await exitDocumentFullscreen().catch(() => undefined);
       }
 
       if (activeQuestionId) {
-        try {
-          setSaveState("saving");
-          await persistAnswer(activeQuestionId, { tabSwitched: true });
-          setSaveState("saved");
-        } catch (requestError) {
-          setSaveState("error");
-        }
+        setSaveState("saving");
+        await persistAnswer(activeQuestionId, { tabSwitched: true }).catch(() => setSaveState("error"));
+        setSaveState("saved");
       }
     };
 
     const onFullscreenChange = () => {
       const active = Boolean(getFullscreenElement());
-
       setNeedsFullscreen(!active);
 
       if (active) {
@@ -224,17 +237,13 @@ export const ExamAttemptPage = () => {
         return;
       }
 
-      if (attemptRef.current && !submittingRef.current) {
+      if (attemptRef.current && !submittingRef.current && wasFullscreenRef.current) {
+        wasFullscreenRef.current = false;
         setFullscreenWarning("Fullscreen exited. Tap below to return to secure mode.");
 
-        if (wasFullscreenRef.current) {
-          wasFullscreenRef.current = false;
-
-          const activeQuestionId = attemptRef.current.exam.questions[currentIndexRef.current]?._id;
-
-          if (activeQuestionId) {
-            persistAnswer(activeQuestionId, { fullscreenExited: true }).catch(() => setSaveState("error"));
-          }
+        const activeQuestionId = attemptRef.current.exam.questions[currentIndexRef.current]?._id;
+        if (activeQuestionId) {
+          persistAnswer(activeQuestionId, { fullscreenExited: true }).catch(() => setSaveState("error"));
         }
       }
     };
@@ -251,20 +260,6 @@ export const ExamAttemptPage = () => {
   }, [fullscreenSupported]);
 
   useEffect(() => {
-    const onBeforeUnload = (event) => {
-      if (!attemptRef.current || submittingRef.current) {
-        return;
-      }
-
-      event.preventDefault();
-      event.returnValue = "";
-    };
-
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, []);
-
-  useEffect(() => {
     return () => {
       if (saveTimerRef.current) {
         window.clearTimeout(saveTimerRef.current);
@@ -272,23 +267,17 @@ export const ExamAttemptPage = () => {
     };
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (fullscreenSupported && getFullscreenElement()) {
-        exitDocumentFullscreen().catch(() => undefined);
-      }
-    };
-  }, [fullscreenSupported]);
-
+  const sections = useMemo(() => attempt?.exam.sections || [], [attempt]);
+  const sectionTiming = useMemo(
+    () => (attempt ? getSectionTiming(sections, attempt.startedAt) : { activeSectionIndex: 0, sectionRemainingSeconds: 0 }),
+    [attempt, remainingTime, sections]
+  );
+  const activeSection = sections[sectionTiming.activeSectionIndex] || sections[0] || null;
   const currentQuestion = attempt?.exam.questions[currentIndex] || null;
-
-  const currentAnswer = useMemo(() => {
-    if (!currentQuestion) {
-      return null;
-    }
-
-    return answers.find((answer) => answer.questionId === currentQuestion._id) || null;
-  }, [answers, currentQuestion]);
+  const currentAnswer = useMemo(
+    () => answers.find((answer) => answer.questionId === currentQuestion?._id) || null,
+    [answers, currentQuestion]
+  );
 
   const answerMap = useMemo(
     () =>
@@ -299,35 +288,70 @@ export const ExamAttemptPage = () => {
     [answers]
   );
 
-  const attemptedCount = useMemo(
-    () => answers.filter((answer) => answer.selectedOptionIds.length > 0).length,
-    [answers]
-  );
-
-  const reviewCount = useMemo(
-    () => answers.filter((answer) => answer.markedForReview).length,
-    [answers]
-  );
-
-  const unansweredCount = useMemo(
-    () => answers.filter((answer) => answer.selectedOptionIds.length === 0).length,
-    [answers]
-  );
-
-  const completionPercentage = useMemo(() => {
-    if (!attempt?.exam?.questions?.length) {
-      return 0;
+  const activeSectionQuestionIndexes = useMemo(() => {
+    if (!attempt || !activeSection) {
+      return [];
     }
 
-    return Math.round((attemptedCount / attempt.exam.questions.length) * 100);
-  }, [attempt, attemptedCount]);
+    return attempt.exam.questions.reduce((indexes, question, index) => {
+      if ((question.section || "General") === activeSection.title) {
+        indexes.push(index);
+      }
+      return indexes;
+    }, []);
+  }, [activeSection, attempt]);
+
+  useEffect(() => {
+    if (!activeSectionQuestionIndexes.length) {
+      return;
+    }
+
+    if (!activeSectionQuestionIndexes.includes(currentIndex)) {
+      setCurrentIndex(activeSectionQuestionIndexes[0]);
+    }
+  }, [activeSectionQuestionIndexes, currentIndex]);
+
+  const progressStats = useMemo(() => {
+    const attempted = answers.filter((answer) => answer.selectedOptionIds.length > 0).length;
+    const skipped = answers.filter((answer) => answer.isSkipped).length;
+    const review = answers.filter((answer) => answer.markedForReview).length;
+    const total = attempt?.exam.questions.length || 0;
+    const completion = total ? Math.round(((attempted + skipped) / total) * 100) : 0;
+
+    return {
+      attempted,
+      skipped,
+      review,
+      unanswered: Math.max(total - attempted - skipped, 0),
+      completion
+    };
+  }, [answers, attempt]);
+
+  const activeSectionStats = useMemo(() => {
+    if (!attempt || !activeSection) {
+      return { answered: 0, skipped: 0, total: 0 };
+    }
+
+    const sectionQuestionIds = new Set(
+      attempt.exam.questions
+        .filter((question) => (question.section || "General") === activeSection.title)
+        .map((question) => question._id)
+    );
+
+    const sectionAnswers = answers.filter((answer) => sectionQuestionIds.has(answer.questionId));
+
+    return {
+      answered: sectionAnswers.filter((answer) => answer.selectedOptionIds.length > 0).length,
+      skipped: sectionAnswers.filter((answer) => answer.isSkipped).length,
+      total: sectionAnswers.length
+    };
+  }, [activeSection, answers, attempt]);
 
   const updateAnswerState = (questionId, updater) => {
     setAnswers((prev) => {
       const nextAnswers = prev.map((answer) =>
         answer.questionId === questionId ? { ...answer, ...updater(answer) } : answer
       );
-
       answersRef.current = nextAnswers;
       return nextAnswers;
     });
@@ -375,10 +399,46 @@ export const ExamAttemptPage = () => {
         nextSelectedOptionIds.push(optionId);
       }
 
-      return { selectedOptionIds: nextSelectedOptionIds, visited: true };
+      return { selectedOptionIds: nextSelectedOptionIds, isSkipped: false, visited: true };
     });
 
     queueSave(currentQuestion._id);
+  };
+
+  const skipQuestion = async () => {
+    if (!currentQuestion) {
+      return;
+    }
+
+    updateAnswerState(currentQuestion._id, () => ({
+      selectedOptionIds: [],
+      isSkipped: true,
+      visited: true
+    }));
+
+    try {
+      await saveAnswer(currentQuestion._id);
+    } catch (requestError) {
+      setError("Unable to save skipped state.");
+    }
+  };
+
+  const clearResponse = async () => {
+    if (!currentQuestion) {
+      return;
+    }
+
+    updateAnswerState(currentQuestion._id, () => ({
+      selectedOptionIds: [],
+      isSkipped: false,
+      visited: true
+    }));
+
+    try {
+      await saveAnswer(currentQuestion._id);
+    } catch (requestError) {
+      setError("Unable to clear the response.");
+    }
   };
 
   const toggleReview = async () => {
@@ -399,17 +459,15 @@ export const ExamAttemptPage = () => {
   };
 
   const moveQuestion = async (direction) => {
-    if (!currentQuestion || !attempt) {
+    if (!currentQuestion || !activeSectionQuestionIndexes.length) {
       return;
     }
 
-    try {
-      await saveAnswer(currentQuestion._id);
-    } catch (requestError) {
-      setError("Unable to save the current answer.");
-    }
+    await saveAnswer(currentQuestion._id).catch(() => undefined);
 
-    setCurrentIndex((prev) => Math.min(Math.max(prev + direction, 0), attempt.exam.questions.length - 1));
+    const currentPosition = activeSectionQuestionIndexes.indexOf(currentIndex);
+    const nextPosition = Math.min(Math.max(currentPosition + direction, 0), activeSectionQuestionIndexes.length - 1);
+    setCurrentIndex(activeSectionQuestionIndexes[nextPosition]);
   };
 
   const jumpToQuestion = async (questionId) => {
@@ -417,15 +475,15 @@ export const ExamAttemptPage = () => {
       return;
     }
 
-    if (currentQuestion) {
-      try {
-        await saveAnswer(currentQuestion._id);
-      } catch (requestError) {
-        setError("Unable to save the current answer.");
-      }
+    const nextIndex = attempt.exam.questions.findIndex((question) => question._id === questionId);
+
+    if (!activeSectionQuestionIndexes.includes(nextIndex)) {
+      return;
     }
 
-    const nextIndex = attempt.exam.questions.findIndex((question) => question._id === questionId);
+    if (currentQuestion) {
+      await saveAnswer(currentQuestion._id).catch(() => undefined);
+    }
 
     if (nextIndex >= 0) {
       setCurrentIndex(nextIndex);
@@ -482,175 +540,175 @@ export const ExamAttemptPage = () => {
     );
   }
 
+  const currentSectionPosition = activeSectionQuestionIndexes.indexOf(currentIndex);
+
   return (
-    <div className="exam-shell mx-auto max-w-7xl">
-      <div className="mb-4 space-y-4 sm:mb-6">
-        <div
-          className="ui-card rounded-[32px] p-4 sm:p-5"
-          style={{ top: "calc(var(--safe-top) + 0.5rem)" }}
-        >
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="min-w-0 max-w-3xl">
-              <p className="section-kicker">Live Attempt</p>
-              <h1 className="mt-5 break-words text-2xl font-semibold text-white sm:text-4xl">{attempt.exam.title}</h1>
-              <p className="mt-3 text-sm leading-6 text-muted">
-                Attempt #{attempt.attemptNumber} | Question {currentIndex + 1} of {attempt.exam.questions.length}
-              </p>
-
-              <div className="mt-5">
-                <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.22em] text-muted">
-                  <span>Progress</span>
-                  <span>{completionPercentage}% complete</span>
+    <div className="exam-shell mx-auto max-w-6xl">
+      <div className="space-y-4">
+        <Card className="rounded-[28px] p-4">
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="section-kicker">{attempt.isResumedAttempt ? "Resumed Attempt" : "Live Exam"}</p>
+                <h1 className="mt-4 break-words text-xl font-semibold text-white sm:text-2xl">{attempt.exam.title}</h1>
+                <p className="mt-2 text-sm text-muted">
+                  {activeSection ? `${activeSection.title} | ` : ""}Question {currentSectionPosition + 1} of {activeSectionQuestionIndexes.length || attempt.exam.questions.length}
+                </p>
+              </div>
+              <div className="grid gap-2">
+                <div className="metric-tile min-w-[118px] text-center">
+                  <p className="text-xs uppercase tracking-[0.25em] text-muted">Overall</p>
+                  <p className="mt-2 text-xl font-semibold text-white">{formatCountdown(remainingTime)}</p>
                 </div>
-                <div className="h-3 rounded-full bg-white/8 p-[3px]">
-                  <div
-                    className="h-full rounded-full bg-white transition-all duration-300"
-                    style={{ width: `${completionPercentage}%` }}
-                  />
-                </div>
+                {activeSection ? (
+                  <div className="metric-tile min-w-[118px] text-center">
+                    <p className="text-xs uppercase tracking-[0.25em] text-muted">Section</p>
+                    <p className="mt-2 text-xl font-semibold text-white">{formatCountdown(sectionTiming.sectionRemainingSeconds)}</p>
+                  </div>
+                ) : null}
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap">
-              <div className="metric-tile text-center sm:min-w-[172px]">
-                <p className="text-xs uppercase tracking-[0.35em] text-muted">Time Remaining</p>
-                <h2 className="mt-2 text-2xl font-semibold text-white sm:text-3xl">
-                  {formatCountdown(remainingTime)}
-                </h2>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs uppercase tracking-[0.22em] text-muted">
+                <span>Progress</span>
+                <span>{progressStats.completion}% done</span>
               </div>
-              <div className="metric-tile text-center sm:min-w-[172px]">
-                <p className="text-xs uppercase tracking-[0.35em] text-muted">Autosave</p>
-                <h2 className="mt-2 text-base font-semibold text-white sm:text-lg">
-                  {saveState === "saving" ? "Saving..." : saveState === "error" ? "Retry pending" : "Saved"}
-                </h2>
+              <div className="h-3 rounded-full bg-white/8 p-[3px]">
+                <div className="h-full rounded-full bg-white transition-all duration-300" style={{ width: `${progressStats.completion}%` }} />
               </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
+              <div className="rounded-2xl bg-emerald-500/12 px-2 py-3 text-emerald-100">{progressStats.attempted} answered</div>
+              <div className="rounded-2xl bg-amber-500/12 px-2 py-3 text-amber-100">{progressStats.skipped} skipped</div>
+              <div className="rounded-2xl bg-rose-500/12 px-2 py-3 text-rose-100">{progressStats.review} review</div>
+              <div className="rounded-2xl bg-white/5 px-2 py-3 text-neutral-200">{progressStats.unanswered} left</div>
             </div>
           </div>
-        </div>
+        </Card>
 
-        {tabWarning ? (
-          <div className="rounded-2xl border border-amber-200/30 bg-amber-950/40 px-4 py-4 sm:px-5">
+        {activeSection ? (
+          <Card className="rounded-[24px] p-4">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm font-semibold text-amber-100">{tabWarning}</p>
-              <p className="text-xs uppercase tracking-[0.25em] text-amber-200">Tab Switches: {tabSwitchCount}</p>
-            </div>
-          </div>
-        ) : null}
-
-        {fullscreenWarning ? (
-          <div
-            className={`rounded-2xl px-4 py-4 sm:px-5 ${
-              needsFullscreen
-                ? "border border-red-200/30 bg-red-950/40"
-                : "border border-white/10 bg-white/5"
-            }`}
-          >
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <p className={`text-sm font-semibold ${needsFullscreen ? "text-red-100" : "text-white"}`}>
-                  {fullscreenWarning}
-                </p>
-                <p className={`mt-1 text-sm ${needsFullscreen ? "text-red-200" : "text-muted"}`}>
-                  {fullscreenSupported
-                    ? "Re-enter fullscreen to continue the exam without interruption."
-                    : "Fullscreen is not available here, so the exam continues in the normal browser view."}
+                <p className="text-xs uppercase tracking-[0.28em] text-muted">Active Section</p>
+                <h2 className="mt-2 text-lg font-semibold text-white">{activeSection.title}</h2>
+                <p className="mt-1 text-sm text-muted">
+                  Cutoff: {activeSection.cutoffMarks} | Answered {activeSectionStats.answered} | Skipped {activeSectionStats.skipped}
                 </p>
               </div>
-              {needsFullscreen && fullscreenSupported ? (
-                <Button className="w-full sm:w-auto" onClick={requestFullscreen}>
-                  Enter Fullscreen
-                </Button>
-              ) : null}
+              <span className="soft-chip">{sectionTiming.sectionRemainingSeconds > 0 ? "Section timer running" : "Section moving"}</span>
             </div>
-          </div>
+          </Card>
         ) : null}
-      </div>
 
-      <div className="relative">
+        {tabWarning ? <p className="rounded-2xl bg-amber-950/40 px-4 py-3 text-sm text-amber-100">{tabWarning}</p> : null}
+        {fullscreenWarning ? <p className="rounded-2xl bg-red-950/35 px-4 py-3 text-sm text-red-100">{fullscreenWarning}</p> : null}
+
         {needsFullscreen && fullscreenSupported ? (
-          <div className="absolute inset-0 z-20 flex items-center justify-center rounded-3xl bg-black/85 p-4 backdrop-blur-sm sm:p-6">
-            <div className="max-w-xl rounded-3xl border border-red-200/30 bg-red-950/70 p-6 text-center shadow-panel">
-              <p className="text-xs uppercase tracking-[0.35em] text-red-200">Secure Mode Required</p>
-              <h2 className="mt-3 text-2xl font-semibold text-white">Return to fullscreen to continue the exam</h2>
-              <p className="mt-3 text-sm text-red-100">
-                The exam is paused behind this screen. Re-enter fullscreen to access questions, navigation, and
-                answer selection again.
-              </p>
-              <div className="mt-6 flex justify-center">
-                <Button onClick={requestFullscreen}>Enter Fullscreen</Button>
-              </div>
-            </div>
-          </div>
+          <Card className="rounded-[28px] p-4 text-center">
+            <p className="text-sm text-red-100">Re-enter fullscreen to continue the exam.</p>
+            <Button className="mt-4 w-full sm:w-auto" onClick={requestFullscreen}>
+              Enter Fullscreen
+            </Button>
+          </Card>
         ) : null}
 
-        <div
-          className={`grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px] ${
-            needsFullscreen && fullscreenSupported ? "pointer-events-none select-none blur-[2px]" : ""
-          }`}
-        >
-          <Card className="min-w-0 rounded-[32px] p-4 sm:p-6">
-            <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.35em] text-muted">
-              <span>Question</span>
-              <span>|</span>
-              <span>{currentQuestion.type === "single" ? "Single correct" : "Multiple correct"}</span>
-              <span>|</span>
-              <span>{currentQuestion.marks} marks</span>
-            </div>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+          <Card className="rounded-[28px] p-4 sm:p-5">
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.35em] text-muted">
+                <span>{currentQuestion.section || "General"}</span>
+                <span>|</span>
+                <span>{currentQuestion.type === "single" ? "Single correct" : "Multiple correct"}</span>
+                <span>|</span>
+                <span>{currentQuestion.marks} marks</span>
+                {currentAnswer.isSkipped ? <span className="rounded-full bg-amber-500/12 px-2 py-1 tracking-normal text-amber-200">Skipped</span> : null}
+                {currentAnswer.markedForReview ? <span className="rounded-full bg-rose-500/12 px-2 py-1 tracking-normal text-rose-200">Review</span> : null}
+              </div>
 
-            <h2 className="mt-4 break-words text-xl font-semibold leading-relaxed text-white sm:text-2xl">
-              {currentQuestion.prompt}
-            </h2>
+              <h2 className="text-lg font-semibold leading-8 text-white sm:text-xl">{currentQuestion.prompt}</h2>
 
-            <div className="mt-6 space-y-3">
-              {currentQuestion.options.map((option, optionIndex) => {
-                const checked = currentAnswer.selectedOptionIds.includes(option._id);
+              <div className="space-y-3">
+                {currentQuestion.options.map((option, optionIndex) => {
+                  const checked = currentAnswer.selectedOptionIds.includes(option._id);
 
-                return (
+                  return (
+                    <button
+                      key={option._id}
+                      onClick={() => toggleOption(option._id)}
+                      className={`flex w-full items-start gap-4 rounded-[22px] border px-4 py-4 text-left transition ${
+                        checked
+                          ? "border-emerald-300 bg-emerald-500/12 text-white"
+                          : "border-white/10 bg-black/30 text-white hover:border-white/16 hover:bg-white/[0.05]"
+                      }`}
+                    >
+                      <span
+                        className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
+                          checked ? "border-emerald-200 bg-emerald-200 text-black" : "border-white/20 text-muted"
+                        }`}
+                      >
+                        {getOptionLabel(optionIndex)}
+                      </span>
+                      <span className="text-sm leading-6">{option.text}</span>
+                    </button>
+                  );
+                })}
+
+                {currentQuestion.enableSkipOption !== false ? (
                   <button
-                    key={option._id}
-                    onClick={() => toggleOption(option._id)}
-                    className={`flex w-full items-start gap-4 rounded-[24px] border px-4 py-4 text-left transition duration-200 ${
-                      checked
-                        ? "border-white bg-white text-black shadow-soft"
+                    onClick={skipQuestion}
+                    className={`flex w-full items-start gap-4 rounded-[22px] border px-4 py-4 text-left transition ${
+                      currentAnswer.isSkipped
+                        ? "border-amber-300 bg-amber-500/12 text-white"
                         : "border-white/10 bg-black/30 text-white hover:border-white/16 hover:bg-white/[0.05]"
                     }`}
                   >
                     <span
                       className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
-                        checked ? "border-black bg-black text-white" : "border-white/20 text-muted"
+                        currentAnswer.isSkipped ? "border-amber-200 bg-amber-200 text-black" : "border-white/20 text-muted"
                       }`}
                     >
-                      {getOptionLabel(optionIndex)}
+                      S
                     </span>
-                    <span className="text-sm leading-6 sm:text-base">{option.text}</span>
+                    <span className="text-sm leading-6">Skip this question without negative marking</span>
                   </button>
-                );
-              })}
-            </div>
+                ) : null}
+              </div>
 
-            {error ? <p className="mt-4 text-sm text-red-300">{error}</p> : null}
+              {error ? <p className="text-sm text-red-300">{error}</p> : null}
 
-            <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <Button variant="secondary" onClick={() => moveQuestion(-1)} disabled={currentIndex === 0}>
-                Previous
-              </Button>
-              <Button variant="secondary" onClick={toggleReview}>
-                {currentAnswer.markedForReview ? "Unmark Review" : "Mark for Review"}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => moveQuestion(1)}
-                disabled={currentIndex === attempt.exam.questions.length - 1}
-              >
-                Next
-              </Button>
-              <Button onClick={submitExam} disabled={submitting}>
-                {submitting ? "Submitting..." : "Submit Exam"}
-              </Button>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Button variant="secondary" onClick={() => moveQuestion(-1)} disabled={currentSectionPosition <= 0}>
+                  Previous
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => moveQuestion(1)}
+                  disabled={currentSectionPosition === activeSectionQuestionIndexes.length - 1}
+                >
+                  Next
+                </Button>
+                <Button variant="secondary" onClick={toggleReview}>
+                  {currentAnswer.markedForReview ? "Unmark Review" : "Mark for Review"}
+                </Button>
+                <Button variant="secondary" onClick={clearResponse}>
+                  Clear Answer
+                </Button>
+                <Button className="sm:col-span-2" onClick={submitExam} disabled={submitting}>
+                  {submitting ? "Submitting..." : "Submit Exam"}
+                </Button>
+              </div>
+
+              <p className="text-xs text-muted">
+                Autosave: {saveState === "saving" ? "Saving..." : saveState === "error" ? "Retry pending" : "Saved"} |
+                Tab switches: {tabSwitchCount} | Fullscreen exits: {fullscreenExitCount}
+              </p>
             </div>
           </Card>
 
-          <div className="space-y-4 xl:sticky xl:top-6">
+          <div className="space-y-4">
             <ExamPalette
               questions={attempt.exam.questions}
               answerMap={answerMap}
@@ -658,50 +716,15 @@ export const ExamAttemptPage = () => {
               onJump={jumpToQuestion}
             />
 
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-              <Card>
-                <h3 className="text-sm font-semibold text-white">Exam Rules</h3>
-                <ul className="mt-4 space-y-2 text-sm leading-6 text-muted">
-                  <li>Every selection is auto-saved.</li>
-                  <li>Tab switching is tracked and shown immediately as a warning.</li>
-                  <li>Fullscreen mode is required when the browser supports it.</li>
-                  <li>The timer will submit the exam automatically.</li>
-                </ul>
-              </Card>
-
-              <Card>
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-white">Progress Snapshot</h3>
-                  <span className="soft-chip">{completionPercentage}% done</span>
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-muted">
-                  <div className="rounded-2xl border border-border bg-surface p-3">
-                    <p>Attempted</p>
-                    <p className="mt-1 text-lg font-semibold text-white">{attemptedCount}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-surface p-3">
-                    <p>Review</p>
-                    <p className="mt-1 text-lg font-semibold text-white">{reviewCount}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-surface p-3">
-                    <p>Unanswered</p>
-                    <p className="mt-1 text-lg font-semibold text-white">{unansweredCount}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-surface p-3">
-                    <p>Tab Switches</p>
-                    <p className="mt-1 text-lg font-semibold text-white">{tabSwitchCount}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-surface p-3">
-                    <p>FS Enters</p>
-                    <p className="mt-1 text-lg font-semibold text-white">{fullscreenEnterCount}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-surface p-3">
-                    <p>FS Exits</p>
-                    <p className="mt-1 text-lg font-semibold text-white">{fullscreenExitCount}</p>
-                  </div>
-                </div>
-              </Card>
-            </div>
+            <Card className="rounded-[24px] p-4">
+              <h3 className="text-sm font-semibold text-white">Quick rules</h3>
+              <ul className="mt-3 space-y-2 text-sm leading-6 text-muted">
+                <li>Only the active section is navigable while its timer is running.</li>
+                <li>Answered questions show green.</li>
+                <li>Skipped questions show amber and do not get negative marks.</li>
+                <li>Review questions show red in the palette.</li>
+              </ul>
+            </Card>
           </div>
         </div>
       </div>

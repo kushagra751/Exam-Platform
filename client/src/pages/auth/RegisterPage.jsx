@@ -8,13 +8,23 @@ import { getRequestErrorMessage } from "../../utils/errors";
 
 export const RegisterPage = () => {
   const navigate = useNavigate();
-  const { register, loading } = useAuth();
+  const {
+    register,
+    loginWithGoogle,
+    sendPhoneOtp,
+    verifyPhoneOtp,
+    loading,
+    phoneConfirmation,
+    isFirebaseConfigured
+  } = useAuth();
   const [form, setForm] = useState({
     name: "",
     email: "",
     password: "",
     role: "user"
   });
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
 
   const onSubmit = async (event) => {
@@ -26,6 +36,41 @@ export const RegisterPage = () => {
       navigate(data.role === "admin" ? "/admin" : "/dashboard");
     } catch (requestError) {
       setError(getRequestErrorMessage(requestError, "Unable to register"));
+    }
+  };
+
+  const onGoogleSignup = async () => {
+    setError("");
+
+    try {
+      const data = await loginWithGoogle(form.role);
+
+      if (data) {
+        navigate(data.role === "admin" ? "/admin" : "/dashboard");
+      }
+    } catch (requestError) {
+      setError(getRequestErrorMessage(requestError, requestError.message || "Unable to continue with Google"));
+    }
+  };
+
+  const onSendPhoneOtp = async () => {
+    setError("");
+
+    try {
+      await sendPhoneOtp(phoneNumber, "register-phone-recaptcha");
+    } catch (requestError) {
+      setError(getRequestErrorMessage(requestError, requestError.message || "Unable to send OTP"));
+    }
+  };
+
+  const onVerifyPhoneOtp = async () => {
+    setError("");
+
+    try {
+      const data = await verifyPhoneOtp(otp, form.role);
+      navigate(data.role === "admin" ? "/admin" : "/dashboard");
+    } catch (requestError) {
+      setError(getRequestErrorMessage(requestError, requestError.message || "Unable to verify OTP"));
     }
   };
 
@@ -71,23 +116,54 @@ export const RegisterPage = () => {
           </select>
         </label>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className={`metric-tile ${form.role === "user" ? "border-white/20" : ""}`}>
-            <p className="text-xs uppercase tracking-[0.25em] text-muted">User Role</p>
-            <p className="mt-2 text-sm leading-6 text-white">Attempt exams, track your results, and review question analysis.</p>
-          </div>
-          <div className={`metric-tile ${form.role === "admin" ? "border-white/20" : ""}`}>
-            <p className="text-xs uppercase tracking-[0.25em] text-muted">Admin Role</p>
-            <p className="mt-2 text-sm leading-6 text-white">Build papers, manage schedules, and monitor live submissions.</p>
-          </div>
-        </div>
-
         {error ? <p className="rounded-2xl border border-red-200/20 bg-red-950/20 px-4 py-3 text-sm text-red-300">{error}</p> : null}
 
         <Button type="submit" className="w-full" disabled={loading}>
           {loading ? "Creating account..." : "Register"}
         </Button>
       </form>
+
+      {isFirebaseConfigured ? (
+        <>
+          <div className="my-6 glass-divider" />
+
+          <div className="space-y-4">
+            <Button variant="secondary" className="w-full" onClick={onGoogleSignup} disabled={loading}>
+              Continue with Google
+            </Button>
+
+            <div className="rounded-[28px] border border-white/8 bg-white/[0.03] p-4">
+              <h3 className="text-sm font-semibold text-white">Phone Signup</h3>
+              <div className="mt-4 space-y-3">
+                <Input
+                  label="Phone Number"
+                  placeholder="+91xxxxxxxxxx"
+                  value={phoneNumber}
+                  onChange={(event) => setPhoneNumber(event.target.value)}
+                />
+                {!phoneConfirmation ? (
+                  <Button variant="secondary" className="w-full" onClick={onSendPhoneOtp} disabled={loading}>
+                    Send OTP
+                  </Button>
+                ) : (
+                  <>
+                    <Input
+                      label="OTP Code"
+                      placeholder="Enter 6-digit code"
+                      value={otp}
+                      onChange={(event) => setOtp(event.target.value)}
+                    />
+                    <Button variant="secondary" className="w-full" onClick={onVerifyPhoneOtp} disabled={loading}>
+                      Verify OTP
+                    </Button>
+                  </>
+                )}
+                <div id="register-phone-recaptcha" />
+              </div>
+            </div>
+          </div>
+        </>
+      ) : null}
 
       <p className="mt-6 text-sm text-muted">
         Already have an account?{" "}

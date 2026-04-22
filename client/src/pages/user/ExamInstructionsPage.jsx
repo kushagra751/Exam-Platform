@@ -97,6 +97,14 @@ export const ExamInstructionsPage = () => {
         </div>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
+          {exam.subject || exam.topic || exam.playlist ? (
+            <div className="metric-tile">
+              <p className="text-xs uppercase tracking-[0.25em] text-muted">Track</p>
+              <p className="mt-2 text-lg font-semibold text-white">
+                {[exam.subject, exam.topic, exam.playlist].filter(Boolean).join(" / ")}
+              </p>
+            </div>
+          ) : null}
           <div className="metric-tile">
             <p className="text-xs uppercase tracking-[0.25em] text-muted">Duration</p>
             <p className="mt-2 text-3xl font-semibold text-white">{exam.duration}</p>
@@ -114,6 +122,21 @@ export const ExamInstructionsPage = () => {
             </p>
           </div>
         </div>
+
+        {Array.isArray(exam.sections) && exam.sections.length > 0 ? (
+          <div className="mt-8 rounded-[28px] border border-white/8 bg-white/[0.03] p-5">
+            <p className="text-xs uppercase tracking-[0.3em] text-muted">Sections</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {exam.sections.map((section) => (
+                <div key={section.title} className="metric-tile">
+                  <p className="text-xs uppercase tracking-[0.25em] text-muted">{section.title}</p>
+                  <p className="mt-2 text-lg font-semibold text-white">{section.duration} min</p>
+                  <p className="text-sm text-muted">Cutoff: {section.cutoffMarks}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-8 grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="rounded-[28px] border border-white/8 bg-white/[0.03] p-5">
@@ -152,14 +175,25 @@ export const ExamInstructionsPage = () => {
         </div>
 
         {error ? <p className="mt-6 text-sm text-red-300">{error}</p> : null}
+        {exam.isLocked ? (
+          <p className="mt-4 text-sm text-amber-200">
+            {exam.lockedUntil
+              ? `This exam is locked until ${new Date(exam.lockedUntil).toLocaleString()}.`
+              : "This exam is currently locked by the admin."}
+          </p>
+        ) : null}
         {fullscreenWarning ? <p className="mt-4 text-sm text-amber-200">{fullscreenWarning}</p> : null}
 
         <div className="glass-divider mt-8" />
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted">Start when you are ready. The timer begins as soon as the attempt loads.</p>
-          <Button className="w-full sm:w-auto" onClick={beginAttempt}>
-            Begin Exam
+          <p className="text-sm text-muted">
+            {exam.hasActiveAttempt
+              ? "You already have an active attempt. Continuing will resume it from where you left off."
+              : "Start when you are ready. The timer begins as soon as the attempt loads."}
+          </p>
+          <Button className="w-full sm:w-auto" onClick={beginAttempt} disabled={exam.isLocked}>
+            {exam.isLocked ? "Locked" : exam.hasActiveAttempt ? "Resume Exam" : "Begin Exam"}
           </Button>
         </div>
       </Card>

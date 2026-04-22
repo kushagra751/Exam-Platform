@@ -38,10 +38,12 @@ export const getResultById = asyncHandler(async (req, res) => {
       prompt: question.prompt,
       type: question.type,
       marks: question.marks,
+      enableSkipOption: question.enableSkipOption !== false,
       explanation: question.explanation,
       options: question.options,
       correctOptionIds: question.correctOptionIds,
       selectedOptionIds: savedAnswer?.selectedOptionIds || [],
+      isSkipped: savedAnswer?.isSkipped || false,
       isCorrect: savedAnswer?.isCorrect || false,
       obtainedMarks: savedAnswer?.obtainedMarks || 0
     };

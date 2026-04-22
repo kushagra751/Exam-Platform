@@ -29,6 +29,16 @@ const userSchema = new mongoose.Schema(
     googleId: {
       type: String,
       default: ""
+    },
+    phoneNumber: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    firebaseUid: {
+      type: String,
+      default: "",
+      index: true
     }
   },
   {
