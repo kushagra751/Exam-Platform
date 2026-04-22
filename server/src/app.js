@@ -32,6 +32,14 @@ app.use(
 app.use(express.json({ limit: "2mb" }));
 app.use(morgan("dev"));
 
+app.get("/", (req, res) => {
+  res.json({ message: "Exam Platform API is running" });
+});
+
+app.get("/health", (req, res) => {
+  res.json({ message: "API is healthy" });
+});
+
 app.get("/api/health", (req, res) => {
   res.json({ message: "API is healthy" });
 });
