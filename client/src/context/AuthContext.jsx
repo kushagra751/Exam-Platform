@@ -6,6 +6,10 @@ const AuthContext = createContext(null);
 
 const storageKey = "exam-platform-auth";
 const firebaseRoleKey = "exam-platform-firebase-role";
+const phoneRecaptchaState = {
+  containerId: "",
+  verifier: null
+};
 
 const persistAuth = (value) => {
   if (value) {
@@ -29,6 +33,28 @@ const exchangeFirebaseSession = async (firebaseUser, role = "user") => {
   const idToken = await firebaseUser.getIdToken();
   const { data } = await api.post("/auth/firebase", { idToken, role });
   return data;
+};
+
+const clearRecaptchaContainer = (containerId) => {
+  const element = document.getElementById(containerId);
+
+  if (element) {
+    element.innerHTML = "";
+  }
+};
+
+const resetPhoneRecaptcha = () => {
+  if (phoneRecaptchaState.verifier) {
+    phoneRecaptchaState.verifier.clear();
+  }
+
+  if (phoneRecaptchaState.containerId) {
+    clearRecaptchaContainer(phoneRecaptchaState.containerId);
+  }
+
+  phoneRecaptchaState.containerId = "";
+  phoneRecaptchaState.verifier = null;
+  window.recaptchaVerifier = null;
 };
 
 export const AuthProvider = ({ children }) => {
@@ -132,19 +158,9 @@ export const AuthProvider = ({ children }) => {
 
       const provider = new firebaseRuntime.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
-
-      const isMobile = window.matchMedia("(max-width: 768px)").matches;
-
-      if (isMobile) {
-        sessionStorage.setItem(firebaseRoleKey, role);
-        await firebaseRuntime.signInWithRedirect(firebaseRuntime.auth, provider);
-        return null;
-      }
-
-      const result = await firebaseRuntime.signInWithPopup(firebaseRuntime.auth, provider);
-      const data = await exchangeFirebaseSession(result.user, role);
-      setAuth(data);
-      return data;
+      sessionStorage.setItem(firebaseRoleKey, role);
+      await firebaseRuntime.signInWithRedirect(firebaseRuntime.auth, provider);
+      return null;
     } finally {
       setLoading(false);
     }
@@ -164,18 +180,25 @@ export const AuthProvider = ({ children }) => {
         throw new Error("Firebase authentication is not configured");
       }
 
-      if (window.recaptchaVerifier) {
-        window.recaptchaVerifier.clear();
+      if (!phoneNumber?.trim()) {
+        throw new Error("Enter a valid phone number with country code like +919876543210");
       }
 
-      window.recaptchaVerifier = new firebaseRuntime.RecaptchaVerifier(firebaseRuntime.auth, containerId, {
-        size: "invisible"
-      });
+      if (!phoneRecaptchaState.verifier || phoneRecaptchaState.containerId !== containerId) {
+        resetPhoneRecaptcha();
+        clearRecaptchaContainer(containerId);
+
+        phoneRecaptchaState.verifier = new firebaseRuntime.RecaptchaVerifier(firebaseRuntime.auth, containerId, {
+          size: "invisible"
+        });
+        phoneRecaptchaState.containerId = containerId;
+        window.recaptchaVerifier = phoneRecaptchaState.verifier;
+      }
 
       const confirmation = await firebaseRuntime.signInWithPhoneNumber(
         firebaseRuntime.auth,
-        phoneNumber,
-        window.recaptchaVerifier
+        phoneNumber.trim(),
+        phoneRecaptchaState.verifier
       );
       setPhoneConfirmation(confirmation);
       return confirmation;
@@ -196,6 +219,7 @@ export const AuthProvider = ({ children }) => {
       const data = await exchangeFirebaseSession(credentialResult.user, role);
       setAuth(data);
       setPhoneConfirmation(null);
+      resetPhoneRecaptcha();
       return data;
     } finally {
       setLoading(false);
@@ -212,6 +236,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     setPhoneConfirmation(null);
+    resetPhoneRecaptcha();
     setAuth(null);
   };
 
