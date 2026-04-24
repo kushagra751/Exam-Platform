@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import api from "../../api/axios";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -8,6 +8,7 @@ import { Input } from "../../components/ui/Input";
 import { QuestionEditor } from "../../components/QuestionEditor";
 import { formatDateTime } from "../../utils/format";
 import { getRequestErrorMessage } from "../../utils/errors";
+import { parseImportedQuestionsClient } from "../../utils/questionImportParser";
 
 const createId = () =>
   globalThis.crypto?.randomUUID?.() || `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -73,6 +74,7 @@ export const AdminExamsPage = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [hydratingEditor, setHydratingEditor] = useState(false);
   const [editingId, setEditingId] = useState("");
   const [form, setForm] = useState(createInitialExamForm);
   const [error, setError] = useState("");
@@ -145,29 +147,41 @@ export const AdminExamsPage = () => {
     }));
   };
 
-  const onEdit = (exam) => {
-    setEditingId(exam._id);
-    setForm({
-      title: exam.title,
-      description: exam.description,
-      subject: exam.subject || "",
-      topic: exam.topic || "",
-      playlist: exam.playlist || "",
-      duration: exam.duration,
-      totalMarks: exam.totalMarks,
-      negativeMarking: String(exam.negativeMarking),
-      maxAttempts: (exam.maxAttempts ?? 1) === 0 ? "unlimited" : String(exam.maxAttempts ?? 1),
-      status: exam.status,
-      isLocked: Boolean(exam.isLocked),
-      lockedUntil: exam.lockedUntil ? new Date(exam.lockedUntil).toISOString().slice(0, 16) : "",
-      startTime: new Date(exam.startTime).toISOString().slice(0, 16),
-      endTime: new Date(exam.endTime).toISOString().slice(0, 16),
-      questions: exam.questions.map((question) => ({
-        ...question,
-        correctOptionIds: question.correctOptionIds.map((id) => id.toString())
-      }))
-    });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  const onEdit = async (exam) => {
+    setHydratingEditor(true);
+    setError("");
+
+    try {
+      const { data } = await api.get(`/exams/${exam._id}`);
+
+      setEditingId(data._id);
+      setForm({
+        title: data.title,
+        description: data.description,
+        subject: data.subject || "",
+        topic: data.topic || "",
+        playlist: data.playlist || "",
+        duration: data.duration,
+        totalMarks: data.totalMarks,
+        negativeMarking: String(data.negativeMarking),
+        maxAttempts: (data.maxAttempts ?? 1) === 0 ? "unlimited" : String(data.maxAttempts ?? 1),
+        status: data.status,
+        isLocked: Boolean(data.isLocked),
+        lockedUntil: data.lockedUntil ? new Date(data.lockedUntil).toISOString().slice(0, 16) : "",
+        startTime: new Date(data.startTime).toISOString().slice(0, 16),
+        endTime: new Date(data.endTime).toISOString().slice(0, 16),
+        questions: data.questions.map((question) => ({
+          ...question,
+          correctOptionIds: question.correctOptionIds.map((id) => id.toString())
+        }))
+      });
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (requestError) {
+      setError(getRequestErrorMessage(requestError, "Unable to load this exam for editing"));
+    } finally {
+      setHydratingEditor(false);
+    }
   };
 
   const onDelete = async (id) => {
@@ -246,13 +260,28 @@ export const AdminExamsPage = () => {
         payload.append("file", importFile);
       }
 
-      const { data } = await api.post("/exams/import-questions", payload, {
-        headers: {
-          "Content-Type": "multipart/form-data"
-        }
-      });
+      const lowerFileName = importFile?.name?.toLowerCase() || "";
+      const shouldParseInBrowser = importText.trim() || lowerFileName.endsWith(".txt");
 
-      applyImportedQuestions(data.questions);
+      if (shouldParseInBrowser) {
+        const sourceText = importText.trim() ? importText : await importFile.text();
+        const questions = parseImportedQuestionsClient(sourceText);
+        startTransition(() => {
+          applyImportedQuestions(questions);
+        });
+      } else {
+        const { data } = await api.post("/exams/import-questions", payload, {
+          headers: {
+            "Content-Type": "multipart/form-data"
+          },
+          timeout: 180000
+        });
+
+        startTransition(() => {
+          applyImportedQuestions(data.questions);
+        });
+      }
+
       setImportText("");
       setImportFile(null);
     } catch (requestError) {
@@ -370,9 +399,9 @@ export const AdminExamsPage = () => {
             </div>
 
             <div className="mt-5 flex flex-wrap gap-3">
-              <Button variant="secondary" className="w-full sm:w-auto" onClick={() => setImportText(importTemplate)}>
-                Load Sample Format
-              </Button>
+            <Button variant="secondary" className="w-full sm:w-auto" onClick={() => setImportText(importTemplate)}>
+              Load Sample Format
+            </Button>
               <Button className="w-full sm:w-auto" onClick={onImportQuestions} disabled={importing}>
                 {importing ? "Importing..." : "Import Questions"}
               </Button>
@@ -390,8 +419,8 @@ export const AdminExamsPage = () => {
             <Button variant="secondary" className="w-full sm:w-auto" onClick={() => setForm((prev) => ({ ...prev, questions: [...prev.questions, createQuestion()] }))}>
               Add Question
             </Button>
-            <Button className="w-full sm:w-auto" type="submit" disabled={saving}>
-              {saving ? "Saving..." : isEditing ? "Update Exam" : "Create Exam"}
+            <Button className="w-full sm:w-auto" type="submit" disabled={saving || hydratingEditor}>
+              {saving ? "Saving..." : hydratingEditor ? "Loading Exam..." : isEditing ? "Update Exam" : "Create Exam"}
             </Button>
           </div>
           {error ? <p className="text-sm text-red-300">{error}</p> : null}
@@ -426,7 +455,7 @@ export const AdminExamsPage = () => {
                       <p className="mt-3 text-sm leading-6 text-muted">{exam.description}</p>
                       <p className="mt-3 text-sm text-muted">{[exam.subject, exam.topic, exam.playlist].filter(Boolean).join(" | ") || "No subject tags yet"}</p>
                       <p className="mt-1 text-sm text-muted">
-                        {exam.questions.length} questions | {exam.duration} minutes | {exam.totalMarks} marks
+                        {exam.questionCount ?? 0} questions | {exam.duration} minutes | {exam.totalMarks} marks
                       </p>
                       <p className="text-sm text-muted">{formatDateTime(exam.startTime)} to {formatDateTime(exam.endTime)}</p>
                       {exam.isLocked || exam.lockedUntil ? (

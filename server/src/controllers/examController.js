@@ -174,7 +174,38 @@ export const createExam = asyncHandler(async (req, res) => {
 });
 
 export const getAdminExams = asyncHandler(async (req, res) => {
-  const exams = await Exam.find().populate("createdBy", "name email").sort({ createdAt: -1 }).lean();
+  const exams = await Exam.aggregate([
+    {
+      $addFields: {
+        questionCount: { $size: "$questions" }
+      }
+    },
+    {
+      $project: {
+        title: 1,
+        description: 1,
+        subject: 1,
+        topic: 1,
+        playlist: 1,
+        duration: 1,
+        totalMarks: 1,
+        negativeMarking: 1,
+        maxAttempts: 1,
+        status: 1,
+        isLocked: 1,
+        lockedUntil: 1,
+        startTime: 1,
+        endTime: 1,
+        questionCount: 1,
+        createdAt: 1,
+        updatedAt: 1
+      }
+    },
+    {
+      $sort: { createdAt: -1 }
+    }
+  ]);
+
   res.json(exams.map((exam) => ({ ...exam, ...getLockState(exam) })));
 });
 
