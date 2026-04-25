@@ -92,24 +92,26 @@ export const PwaActions = ({ compact = false }) => {
 
   if (compact) {
     return (
-      <div className="flex items-center gap-2">
-        <Button
-          variant="secondary"
-          className="flex min-h-[40px] w-[40px] items-center justify-center rounded-full px-0 py-0"
-          onClick={installApp}
-          title={installed ? "Installed" : "Install app"}
-        >
-          <IconButtonContent type="install" label={installed ? "Installed" : "Install app"} />
-        </Button>
-        <Button
-          variant="secondary"
-          className="flex min-h-[40px] w-[40px] items-center justify-center rounded-full px-0 py-0"
-          onClick={enableNotifications}
-          title={notificationsEnabled ? "Alerts on" : "Enable alerts"}
-        >
-          <IconButtonContent type="alert" label={notificationsEnabled ? "Alerts on" : "Enable alerts"} />
-        </Button>
-        {message ? <p className="hidden text-xs text-neutral-300 lg:block">{message}</p> : null}
+      <div className="flex flex-col items-end gap-2">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            className="flex min-h-[48px] w-[48px] items-center justify-center rounded-full px-0 py-0"
+            onClick={installApp}
+            title={installed ? "Installed" : "Install app"}
+          >
+            <IconButtonContent type="install" label={installed ? "Installed" : "Install app"} />
+          </Button>
+          <Button
+            variant="secondary"
+            className="flex min-h-[48px] w-[48px] items-center justify-center rounded-full px-0 py-0"
+            onClick={enableNotifications}
+            title={notificationsEnabled ? "Alerts on" : "Enable alerts"}
+          >
+            <IconButtonContent type="alert" label={notificationsEnabled ? "Alerts on" : "Enable alerts"} />
+          </Button>
+        </div>
+        {message ? <p className="max-w-[220px] text-right text-[11px] leading-5 text-neutral-300">{message}</p> : null}
       </div>
     );
   }

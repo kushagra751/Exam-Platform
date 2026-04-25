@@ -6,6 +6,7 @@ import { Card } from "../../components/ui/Card";
 import { Loader } from "../../components/ui/Loader";
 import { isFullscreenSupported, requestDocumentFullscreen } from "../../utils/fullscreen";
 import { shareExamLink } from "../../utils/pwa";
+import { formatNegativeMarking } from "../../utils/format";
 
 export const ExamInstructionsPage = () => {
   const { examId } = useParams();
@@ -136,6 +137,11 @@ export const ExamInstructionsPage = () => {
             <p className="text-xs uppercase tracking-[0.25em] text-muted">Questions</p>
             <p className="mt-2 text-3xl font-semibold text-white">{exam.questions.length}</p>
             <p className="text-xs text-muted">total prompts</p>
+          </div>
+          <div className="metric-tile">
+            <p className="text-xs uppercase tracking-[0.25em] text-muted">Negative</p>
+            <p className="mt-2 text-3xl font-semibold text-white">{formatNegativeMarking(exam.negativeMarking)}</p>
+            <p className="text-xs text-muted">per wrong answer</p>
           </div>
           <div className="metric-tile">
             <p className="text-xs uppercase tracking-[0.25em] text-muted">Mode</p>
