@@ -10,6 +10,7 @@ import { errorHandler, notFound } from "./middleware/errorMiddleware.js";
 dotenv.config();
 
 const app = express();
+app.disable("x-powered-by");
 const allowedOrigins = new Set([
   process.env.CLIENT_URL,
   "http://localhost:5173",
@@ -30,7 +31,11 @@ app.use(
   })
 );
 app.use(express.json({ limit: "10mb" }));
-app.use(morgan("dev"));
+app.use(
+  morgan("dev", {
+    skip: (req) => req.path === "/health" || req.path === "/api/health" || req.method === "HEAD"
+  })
+);
 
 app.get("/", (req, res) => {
   res.json({ message: "Exam Platform API is running" });

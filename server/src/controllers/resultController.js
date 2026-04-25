@@ -105,7 +105,7 @@ export const getResultById = asyncHandler(async (req, res) => {
     throw new Error("You are not allowed to view this result");
   }
 
-  const exam = await Exam.findById(result.exam._id);
+  const exam = result.exam;
 
   const detailedAnswers = exam.questions.map((question) => {
     const savedAnswer = result.answers.find(

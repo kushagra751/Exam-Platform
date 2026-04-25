@@ -42,6 +42,7 @@ export const ExamAttemptPage = () => {
   const [fullscreenWarning, setFullscreenWarning] = useState("");
   const [needsFullscreen, setNeedsFullscreen] = useState(fullscreenSupported);
   const [queuedSaveCount, setQueuedSaveCount] = useState(getQueuedAttemptCount());
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const syncAttemptCounters = (data) => {
     setTabSwitchCount(data.tabSwitchCount || 0);
@@ -624,15 +625,25 @@ export const ExamAttemptPage = () => {
           </Card>
         ) : null}
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="grid gap-4">
           <Card className={`rounded-[28px] p-4 sm:p-5 ${examLockedByFullscreen ? "pointer-events-none opacity-45" : ""}`}>
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.35em] text-muted">
-                <span>{currentQuestion.type === "single" ? "Single correct" : "Multiple correct"}</span>
-                <span>|</span>
-                <span>{currentQuestion.marks} marks</span>
-                {currentAnswer.isSkipped ? <span className="rounded-full bg-amber-500/12 px-2 py-1 tracking-normal text-amber-200">Not attempted</span> : null}
-                {currentAnswer.markedForReview ? <span className="rounded-full bg-rose-500/12 px-2 py-1 tracking-normal text-rose-200">Review</span> : null}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.35em] text-muted">
+                  <span>{currentQuestion.type === "single" ? "Single correct" : "Multiple correct"}</span>
+                  <span>|</span>
+                  <span>{currentQuestion.marks} marks</span>
+                  {currentAnswer.isSkipped ? <span className="rounded-full bg-amber-500/12 px-2 py-1 tracking-normal text-amber-200">Not attempted</span> : null}
+                  {currentAnswer.markedForReview ? <span className="rounded-full bg-rose-500/12 px-2 py-1 tracking-normal text-rose-200">Review</span> : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPaletteOpen(true)}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white"
+                  aria-label="Open question list"
+                >
+                  ⋯
+                </button>
               </div>
 
               <h2 className="text-lg font-semibold leading-8 text-white sm:text-xl">{currentQuestion.prompt}</h2>
@@ -703,16 +714,17 @@ export const ExamAttemptPage = () => {
             </div>
           </Card>
 
-          <div className="space-y-4">
-            <ExamPalette
-              questions={attempt.exam.questions}
-              answerMap={answerMap}
-              currentQuestionId={currentQuestion._id}
-              onJump={jumpToQuestion}
-              disabled={examLockedByFullscreen}
-            />
-          </div>
         </div>
+
+        <ExamPalette
+          questions={attempt.exam.questions}
+          answerMap={answerMap}
+          currentQuestionId={currentQuestion._id}
+          onJump={jumpToQuestion}
+          disabled={examLockedByFullscreen}
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+        />
       </div>
     </div>
   );
