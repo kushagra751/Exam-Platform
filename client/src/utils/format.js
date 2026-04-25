@@ -6,6 +6,27 @@ export const formatDateTime = (value) =>
 
 export const formatDuration = (minutes) => `${minutes} min`;
 
+export const formatNegativeMarking = (value) => {
+  const numeric = Number(value);
+
+  if (!Number.isFinite(numeric)) {
+    return String(value);
+  }
+
+  if (numeric === 0) {
+    return "0";
+  }
+
+  for (let denominator = 1; denominator <= 12; denominator += 1) {
+    const numerator = Math.round(numeric * denominator);
+    if (numerator > 0 && Math.abs(numerator / denominator - numeric) < 0.0001) {
+      return `${numerator}/${denominator}`;
+    }
+  }
+
+  return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(2).replace(/\.?0+$/, "");
+};
+
 export const getExamState = (exam) => {
   const now = Date.now();
   const start = new Date(exam.startTime).getTime();

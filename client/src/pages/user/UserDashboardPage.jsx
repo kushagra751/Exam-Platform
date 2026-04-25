@@ -8,7 +8,7 @@ import { ErrorState } from "../../components/ui/ErrorState";
 import { Loader } from "../../components/ui/Loader";
 import { Input } from "../../components/ui/Input";
 import { getRequestErrorMessage } from "../../utils/errors";
-import { formatDateTime, getExamState } from "../../utils/format";
+import { formatDateTime, formatNegativeMarking, getExamState } from "../../utils/format";
 import {
   createExamReminder,
   hasExamReminder,
@@ -16,6 +16,28 @@ import {
   requestReminderPermission
 } from "../../utils/notificationReminders";
 import { shareExamLink } from "../../utils/pwa";
+
+const SearchIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <circle cx="11" cy="11" r="6" />
+    <path d="m20 20-3.5-3.5" strokeLinecap="round" />
+  </svg>
+);
+
+const ShareIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <path d="M14 4h6v6" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M10 14 20 4" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const BellIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <path d="M6 8a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M10 18a2 2 0 0 0 4 0" strokeLinecap="round" />
+  </svg>
+);
 
 export const UserDashboardPage = () => {
   const [exams, setExams] = useState([]);
@@ -120,9 +142,10 @@ export const UserDashboardPage = () => {
           <button
             type="button"
             onClick={() => setShowSearch((prev) => !prev)}
-            className="flex h-[42px] w-[42px] items-center justify-center rounded-full border border-white/10 bg-white/5 text-base text-white"
+            className="flex h-[42px] w-[42px] items-center justify-center rounded-full border border-white/10 bg-white/5 text-white"
+            title="Search exams"
           >
-            ⌕
+            <SearchIcon />
           </button>
         </div>
 
@@ -195,7 +218,7 @@ export const UserDashboardPage = () => {
 
                   <div className="min-w-0">
                     <h3 className="truncate text-lg font-semibold text-white">{exam.title}</h3>
-                    <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted">{exam.description}</p>
+                    <p className="mt-1 text-sm leading-6 text-muted">{exam.description}</p>
                   </div>
 
                   <div className="grid grid-cols-3 gap-2 text-center">
@@ -205,7 +228,7 @@ export const UserDashboardPage = () => {
                     </div>
                     <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-2 py-3">
                       <p className="text-[10px] uppercase tracking-[0.22em] text-muted">Negative</p>
-                      <p className="mt-1 text-sm font-semibold text-white">{exam.negativeMarking}</p>
+                      <p className="mt-1 text-sm font-semibold text-white">{formatNegativeMarking(exam.negativeMarking)}</p>
                     </div>
                     <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-2 py-3">
                       <p className="text-[10px] uppercase tracking-[0.22em] text-muted">Starts</p>
@@ -221,7 +244,7 @@ export const UserDashboardPage = () => {
                     </p>
                   ) : null}
 
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-[1.2fr_44px_44px] gap-2">
                     <Link to={`/exam/${exam._id}/instructions`} className="block">
                       <Button className="w-full min-h-[44px] px-3 py-2 text-xs" disabled={isLocked}>
                         {isLocked ? "Locked" : exam.hasActiveAttempt ? "Resume" : "Open"}
@@ -229,17 +252,21 @@ export const UserDashboardPage = () => {
                     </Link>
                     <Button
                       variant="secondary"
-                      className="w-full min-h-[44px] px-3 py-2 text-xs"
+                      className="flex min-h-[44px] w-full items-center justify-center px-0 py-0"
                       onClick={() => shareExam(exam)}
+                      title="Share exam"
                     >
-                      Share
+                      <ShareIcon />
+                      <span className="sr-only">Share exam</span>
                     </Button>
                     <Button
                       variant="secondary"
-                      className="w-full min-h-[44px] px-3 py-2 text-xs"
+                      className="flex min-h-[44px] w-full items-center justify-center px-0 py-0"
                       onClick={() => remindForExam(exam)}
+                      title={reminderMap[exam._id] ? "Reminder saved" : "Remind me"}
                     >
-                      {reminderMap[exam._id] ? "Saved" : "Remind"}
+                      <BellIcon />
+                      <span className="sr-only">{reminderMap[exam._id] ? "Reminder saved" : "Remind me"}</span>
                     </Button>
                   </div>
                 </div>

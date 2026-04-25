@@ -3,6 +3,31 @@ import { Button } from "./ui/Button";
 import { isStandaloneMode } from "../utils/pwa";
 import { hasReminderPermission, requestReminderPermission } from "../utils/notificationReminders";
 
+const IconButtonContent = ({ type, label }) => {
+  if (type === "install") {
+    return (
+      <>
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M12 3v10" strokeLinecap="round" />
+          <path d="m8 10 4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M5 19h14" strokeLinecap="round" />
+        </svg>
+        <span className="sr-only">{label}</span>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <path d="M6 8a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M10 18a2 2 0 0 0 4 0" strokeLinecap="round" />
+      </svg>
+      <span className="sr-only">{label}</span>
+    </>
+  );
+};
+
 const getInstallFallback = () => {
   const userAgent = navigator.userAgent || "";
 
@@ -68,11 +93,21 @@ export const PwaActions = ({ compact = false }) => {
   if (compact) {
     return (
       <div className="flex items-center gap-2">
-        <Button variant="secondary" className="min-h-[42px] rounded-full px-3 py-2 text-xs" onClick={installApp}>
-          {installed ? "Installed" : "Install"}
+        <Button
+          variant="secondary"
+          className="flex min-h-[40px] w-[40px] items-center justify-center rounded-full px-0 py-0"
+          onClick={installApp}
+          title={installed ? "Installed" : "Install app"}
+        >
+          <IconButtonContent type="install" label={installed ? "Installed" : "Install app"} />
         </Button>
-        <Button variant="secondary" className="min-h-[42px] rounded-full px-3 py-2 text-xs" onClick={enableNotifications}>
-          {notificationsEnabled ? "Alerts On" : "Alerts"}
+        <Button
+          variant="secondary"
+          className="flex min-h-[40px] w-[40px] items-center justify-center rounded-full px-0 py-0"
+          onClick={enableNotifications}
+          title={notificationsEnabled ? "Alerts on" : "Enable alerts"}
+        >
+          <IconButtonContent type="alert" label={notificationsEnabled ? "Alerts on" : "Enable alerts"} />
         </Button>
         {message ? <p className="hidden text-xs text-neutral-300 lg:block">{message}</p> : null}
       </div>
