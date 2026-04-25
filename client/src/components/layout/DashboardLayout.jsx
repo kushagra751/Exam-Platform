@@ -1,6 +1,7 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { Button } from "../ui/Button";
+import { PwaActions } from "../PwaActions";
 
 const adminLinks = [
   { to: "/admin", label: "Overview" },
@@ -111,6 +112,8 @@ export const DashboardLayout = () => {
               </div>
             </div>
           </header>
+
+          <PwaActions />
 
           <Outlet />
         </main>

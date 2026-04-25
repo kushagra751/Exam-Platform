@@ -12,6 +12,7 @@ import {
   requestDocumentFullscreen
 } from "../../utils/fullscreen";
 import { formatCountdown, getTimeRemainingInSeconds } from "../../utils/format";
+import { enqueueAttemptAction, flushAttemptQueue, getQueuedAttemptCount } from "../../utils/offlineAttemptQueue";
 
 const getOptionLabel = (index) => String.fromCharCode(65 + index);
 
@@ -39,7 +40,8 @@ export const ExamAttemptPage = () => {
   const [fullscreenEnterCount, setFullscreenEnterCount] = useState(0);
   const [fullscreenExitCount, setFullscreenExitCount] = useState(0);
   const [fullscreenWarning, setFullscreenWarning] = useState("");
-  const [needsFullscreen, setNeedsFullscreen] = useState(false);
+  const [needsFullscreen, setNeedsFullscreen] = useState(fullscreenSupported);
+  const [queuedSaveCount, setQueuedSaveCount] = useState(getQueuedAttemptCount());
 
   const syncAttemptCounters = (data) => {
     setTabSwitchCount(data.tabSwitchCount || 0);
@@ -86,7 +88,7 @@ export const ExamAttemptPage = () => {
       return null;
     }
 
-    const response = await api.put(`/exams/attempts/${currentAttempt.resultId}/answer`, {
+    const payload = {
       questionId,
       selectedOptionIds: answer.selectedOptionIds,
       visited: true,
@@ -96,10 +98,31 @@ export const ExamAttemptPage = () => {
       tabSwitched,
       fullscreenEntered,
       fullscreenExited
-    });
+    };
+    const response = await api.put(`/exams/attempts/${currentAttempt.resultId}/answer`, payload);
 
     syncAttemptCounters(response.data);
-    return response.data;
+    return { data: response.data, payload };
+  };
+
+  const syncQueuedSaves = async () => {
+    if (!navigator.onLine) {
+      return;
+    }
+
+    setSaveState("saving");
+
+    try {
+      const synced = await flushAttemptQueue(api);
+      setQueuedSaveCount(getQueuedAttemptCount());
+      setSaveState(getQueuedAttemptCount() ? "queued" : "saved");
+
+      if (synced > 0) {
+        setError("");
+      }
+    } catch (error) {
+      setSaveState(getQueuedAttemptCount() ? "queued" : "error");
+    }
   };
 
   const saveAnswer = async (questionId, options = {}) => {
@@ -111,8 +134,33 @@ export const ExamAttemptPage = () => {
 
     try {
       await persistAnswer(questionId, options);
+      setQueuedSaveCount(getQueuedAttemptCount());
       setSaveState("saved");
     } catch (requestError) {
+      const currentAttempt = attemptRef.current;
+      const answer = answersRef.current.find((item) => item.questionId === questionId);
+      const isOfflineLikeError = !requestError.response;
+
+      if (currentAttempt && answer && isOfflineLikeError) {
+        enqueueAttemptAction({
+          kind: "answer",
+          resultId: currentAttempt.resultId,
+          questionId,
+          payload: {
+            questionId,
+            selectedOptionIds: answer.selectedOptionIds,
+            visited: true,
+            isSkipped: answer.isSkipped,
+            markedForReview: answer.markedForReview,
+            timeSpentSeconds: answer.timeSpentSeconds || 0,
+            ...options
+          }
+        });
+        setQueuedSaveCount(getQueuedAttemptCount());
+        setSaveState("queued");
+        return;
+      }
+
       setSaveState("error");
       throw requestError;
     }
@@ -148,8 +196,9 @@ export const ExamAttemptPage = () => {
         }
       }
 
-      setNeedsFullscreen(false);
-      setFullscreenWarning("");
+      const enteredFullscreen = Boolean(getFullscreenElement());
+      setNeedsFullscreen(!enteredFullscreen);
+      setFullscreenWarning(enteredFullscreen ? "" : "Fullscreen could not start automatically. Tap below to continue.");
     } catch (fullscreenError) {
       setNeedsFullscreen(true);
       setFullscreenWarning("Fullscreen could not start automatically. Tap below to continue.");
@@ -175,10 +224,14 @@ export const ExamAttemptPage = () => {
         syncAttemptCounters(data);
         setRemainingTime(getTimeRemainingInSeconds(data.startedAt, data.exam.duration));
         questionStartRef.current = Date.now();
+        setNeedsFullscreen(fullscreenSupported && !getFullscreenElement());
+        setQueuedSaveCount(getQueuedAttemptCount());
 
         if (fullscreenSupported) {
           await requestFullscreen();
         }
+
+        await syncQueuedSaves();
       } catch (requestError) {
         if (requestError.response?.data?.alreadySubmitted && requestError.response?.data?.resultId) {
           navigate(`/results/${requestError.response.data.resultId}`, { replace: true });
@@ -278,14 +331,25 @@ export const ExamAttemptPage = () => {
       }
     };
 
+    const onFocus = () => {
+      if (attemptRef.current && !getFullscreenElement()) {
+        setNeedsFullscreen(true);
+        setFullscreenWarning("Return to fullscreen to continue the exam.");
+      }
+    };
+
     document.addEventListener("visibilitychange", onVisibilityChange);
     document.addEventListener("fullscreenchange", onFullscreenChange);
     document.addEventListener("webkitfullscreenchange", onFullscreenChange);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("pageshow", onFocus);
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       document.removeEventListener("fullscreenchange", onFullscreenChange);
       document.removeEventListener("webkitfullscreenchange", onFullscreenChange);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("pageshow", onFocus);
     };
   }, [fullscreenSupported]);
 
@@ -295,6 +359,15 @@ export const ExamAttemptPage = () => {
         window.clearTimeout(saveTimerRef.current);
       }
     };
+  }, []);
+
+  useEffect(() => {
+    const onOnline = () => {
+      syncQueuedSaves().catch(() => undefined);
+    };
+
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
   }, []);
 
   const currentQuestion = attempt?.exam.questions[currentIndex] || null;
@@ -328,8 +401,10 @@ export const ExamAttemptPage = () => {
     };
   }, [answers, attempt]);
 
+  const examLockedByFullscreen = fullscreenSupported && needsFullscreen;
+
   const updateSelection = (optionId) => {
-    if (!currentQuestion || !currentAnswer) {
+    if (!currentQuestion || !currentAnswer || examLockedByFullscreen) {
       return;
     }
 
@@ -351,7 +426,7 @@ export const ExamAttemptPage = () => {
   };
 
   const skipQuestion = async () => {
-    if (!currentQuestion) {
+    if (!currentQuestion || examLockedByFullscreen) {
       return;
     }
 
@@ -369,7 +444,7 @@ export const ExamAttemptPage = () => {
   };
 
   const clearResponse = async () => {
-    if (!currentQuestion) {
+    if (!currentQuestion || examLockedByFullscreen) {
       return;
     }
 
@@ -387,7 +462,7 @@ export const ExamAttemptPage = () => {
   };
 
   const toggleReview = async () => {
-    if (!currentQuestion) {
+    if (!currentQuestion || examLockedByFullscreen) {
       return;
     }
 
@@ -404,7 +479,7 @@ export const ExamAttemptPage = () => {
   };
 
   const moveQuestion = async (direction) => {
-    if (!currentQuestion || !attempt) {
+    if (!currentQuestion || !attempt || examLockedByFullscreen) {
       return;
     }
 
@@ -421,7 +496,7 @@ export const ExamAttemptPage = () => {
   };
 
   const jumpToQuestion = async (questionId) => {
-    if (!attempt) {
+    if (!attempt || examLockedByFullscreen) {
       return;
     }
 
@@ -441,7 +516,7 @@ export const ExamAttemptPage = () => {
   };
 
   const submitExam = async () => {
-    if (!attemptRef.current) {
+    if (!attemptRef.current || examLockedByFullscreen) {
       return;
     }
 
@@ -452,6 +527,14 @@ export const ExamAttemptPage = () => {
       if (currentQuestion) {
         trackTimeForQuestion(currentQuestion._id);
         await saveAnswer(currentQuestion._id);
+      }
+
+      await syncQueuedSaves();
+
+      if (!navigator.onLine || getQueuedAttemptCount() > 0) {
+        setError("You are offline. Answers are queued safely, but final submit needs internet.");
+        setSubmitting(false);
+        return;
       }
 
       const { data } = await api.post(`/exams/attempts/${attemptRef.current.resultId}/submit`);
@@ -532,9 +615,9 @@ export const ExamAttemptPage = () => {
         {tabWarning ? <p className="rounded-2xl bg-amber-950/40 px-4 py-3 text-sm text-amber-100">{tabWarning}</p> : null}
         {fullscreenWarning ? <p className="rounded-2xl bg-red-950/35 px-4 py-3 text-sm text-red-100">{fullscreenWarning}</p> : null}
 
-        {needsFullscreen && fullscreenSupported ? (
+        {examLockedByFullscreen ? (
           <Card className="rounded-[28px] p-4 text-center">
-            <p className="text-sm text-red-100">Re-enter fullscreen to continue the exam.</p>
+            <p className="text-sm text-red-100">Exam tab abhi locked hai. Continue karne ke liye fullscreen me wapas aao.</p>
             <Button className="mt-4 w-full sm:w-auto" onClick={requestFullscreen}>
               Enter Fullscreen
             </Button>
@@ -542,7 +625,7 @@ export const ExamAttemptPage = () => {
         ) : null}
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-          <Card className="rounded-[28px] p-4 sm:p-5">
+          <Card className={`rounded-[28px] p-4 sm:p-5 ${examLockedByFullscreen ? "pointer-events-none opacity-45" : ""}`}>
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.35em] text-muted">
                 <span>{currentQuestion.type === "single" ? "Single correct" : "Multiple correct"}</span>
@@ -562,6 +645,7 @@ export const ExamAttemptPage = () => {
                     <button
                       key={option._id}
                       onClick={() => updateSelection(option._id)}
+                      disabled={examLockedByFullscreen}
                       className={`flex w-full items-start gap-4 rounded-[22px] border px-4 py-4 text-left transition ${
                         checked
                           ? "border-emerald-300 bg-emerald-500/12 text-white"
@@ -578,6 +662,7 @@ export const ExamAttemptPage = () => {
 
                 <button
                   onClick={skipQuestion}
+                  disabled={examLockedByFullscreen}
                   className={`flex w-full items-start gap-4 rounded-[22px] border px-4 py-4 text-left transition ${
                     currentAnswer.isSkipped
                       ? "border-amber-300 bg-amber-500/12 text-white"
@@ -594,25 +679,25 @@ export const ExamAttemptPage = () => {
               {error ? <p className="text-sm text-red-300">{error}</p> : null}
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <Button variant="secondary" onClick={() => moveQuestion(-1)} disabled={currentIndex <= 0}>
+                <Button variant="secondary" onClick={() => moveQuestion(-1)} disabled={examLockedByFullscreen || currentIndex <= 0}>
                   Previous
                 </Button>
-                <Button variant="secondary" onClick={() => moveQuestion(1)} disabled={currentIndex >= attempt.exam.questions.length - 1}>
+                <Button variant="secondary" onClick={() => moveQuestion(1)} disabled={examLockedByFullscreen || currentIndex >= attempt.exam.questions.length - 1}>
                   Next
                 </Button>
-                <Button variant="secondary" onClick={toggleReview}>
+                <Button variant="secondary" onClick={toggleReview} disabled={examLockedByFullscreen}>
                   {currentAnswer.markedForReview ? "Unmark Review" : "Mark for Review"}
                 </Button>
-                <Button variant="secondary" onClick={clearResponse}>
+                <Button variant="secondary" onClick={clearResponse} disabled={examLockedByFullscreen}>
                   Clear Answer
                 </Button>
-                <Button className="sm:col-span-2" onClick={submitExam} disabled={submitting}>
+                <Button className="sm:col-span-2" onClick={submitExam} disabled={examLockedByFullscreen || submitting}>
                   {submitting ? "Submitting..." : "Submit Exam"}
                 </Button>
               </div>
 
               <p className="text-xs text-muted">
-                Autosave: {saveState === "saving" ? "Saving..." : saveState === "error" ? "Retry pending" : "Saved"} |
+                Autosave: {saveState === "saving" ? "Saving..." : saveState === "queued" ? `Offline queued (${queuedSaveCount})` : saveState === "error" ? "Retry pending" : "Saved"} |
                 Time on this question: {currentAnswer.timeSpentSeconds || 0}s | Tab switches: {tabSwitchCount} | Fullscreen exits: {fullscreenExitCount}
               </p>
             </div>
@@ -624,17 +709,8 @@ export const ExamAttemptPage = () => {
               answerMap={answerMap}
               currentQuestionId={currentQuestion._id}
               onJump={jumpToQuestion}
+              disabled={examLockedByFullscreen}
             />
-
-            <Card className="rounded-[24px] p-4">
-              <h3 className="text-sm font-semibold text-white">Quick rules</h3>
-              <ul className="mt-3 space-y-2 text-sm leading-6 text-muted">
-                <li>Questions answered are shown in green.</li>
-                <li>The built-in 5th option marks a question as not attempted with no negative cut.</li>
-                <li>Review questions show red in the palette.</li>
-                <li>Per-question time is tracked for the result analyzer.</li>
-              </ul>
-            </Card>
           </div>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { PwaActions } from "../components/PwaActions";
 
 const highlights = [
   { label: "Secure Attempts", value: "Live timer, autosave, fullscreen guardrails" },
@@ -84,6 +85,10 @@ export const HomePage = () => (
                 <p className="mt-3 text-sm leading-6 text-white">{item.value}</p>
               </div>
             ))}
+          </div>
+
+          <div className="mt-8">
+            <PwaActions />
           </div>
         </div>
 

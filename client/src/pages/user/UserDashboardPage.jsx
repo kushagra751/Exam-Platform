@@ -9,6 +9,13 @@ import { Loader } from "../../components/ui/Loader";
 import { Input } from "../../components/ui/Input";
 import { getRequestErrorMessage } from "../../utils/errors";
 import { formatDateTime, getExamState } from "../../utils/format";
+import {
+  createExamReminder,
+  hasExamReminder,
+  hasReminderPermission,
+  requestReminderPermission
+} from "../../utils/notificationReminders";
+import { shareExamLink } from "../../utils/pwa";
 
 export const UserDashboardPage = () => {
   const [exams, setExams] = useState([]);
@@ -17,12 +24,20 @@ export const UserDashboardPage = () => {
   const [search, setSearch] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("all");
   const [playlistFilter, setPlaylistFilter] = useState("all");
+  const [message, setMessage] = useState("");
+  const [reminderMap, setReminderMap] = useState({});
 
   useEffect(() => {
     const load = async () => {
       try {
         const { data } = await api.get("/exams/available");
         setExams(data);
+        setReminderMap(
+          data.reduce((accumulator, exam) => {
+            accumulator[exam._id] = hasExamReminder(exam._id);
+            return accumulator;
+          }, {})
+        );
       } catch (requestError) {
         setError(getRequestErrorMessage(requestError, "Unable to load available exams"));
       } finally {
@@ -57,6 +72,40 @@ export const UserDashboardPage = () => {
       return matchesSearch && matchesSubject && matchesPlaylist;
     });
   }, [exams, playlistFilter, search, subjectFilter]);
+
+  const remindForExam = async (exam) => {
+    setMessage("");
+
+    let granted = hasReminderPermission();
+    if (!granted) {
+      granted = await requestReminderPermission();
+    }
+
+    if (!granted) {
+      setMessage("Browser reminder permission allow nahi hui.");
+      return;
+    }
+
+    createExamReminder(exam);
+    setReminderMap((prev) => ({ ...prev, [exam._id]: true }));
+    setMessage(`Reminder set ho gaya for ${exam.title}.`);
+  };
+
+  const shareExam = async (exam) => {
+    const outcome = await shareExamLink({
+      title: exam.title,
+      text: `Attempt this exam on Exam Platform`,
+      url: `${window.location.origin}/exam/${exam._id}/instructions`
+    }).catch(() => "failed");
+
+    if (outcome === "copied") {
+      setMessage(`Share link copied for ${exam.title}.`);
+    } else if (outcome === "shared") {
+      setMessage(`Exam shared: ${exam.title}.`);
+    } else if (outcome === "failed") {
+      setMessage("Exam share nahi ho paaya.");
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -106,6 +155,8 @@ export const UserDashboardPage = () => {
               </select>
             </label>
           </div>
+
+          {message ? <p className="text-sm text-neutral-200">{message}</p> : null}
         </div>
       </Card>
 
@@ -163,12 +214,18 @@ export const UserDashboardPage = () => {
                     </p>
                   ) : null}
 
-                  <div>
-                    <Link to={`/exam/${exam._id}/instructions`} className="block">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <Link to={`/exam/${exam._id}/instructions`} className="block sm:col-span-1">
                       <Button className="w-full" disabled={isLocked}>
                         {isLocked ? "Locked" : exam.hasActiveAttempt ? "Resume Exam" : "Start Exam"}
                       </Button>
                     </Link>
+                    <Button variant="secondary" className="w-full" onClick={() => shareExam(exam)}>
+                      Share Exam
+                    </Button>
+                    <Button variant="secondary" className="w-full" onClick={() => remindForExam(exam)}>
+                      {reminderMap[exam._id] ? "Reminder Set" : "Remind Me"}
+                    </Button>
                   </div>
                 </div>
               </Card>

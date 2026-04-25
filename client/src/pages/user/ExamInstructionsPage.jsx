@@ -5,6 +5,7 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Loader } from "../../components/ui/Loader";
 import { isFullscreenSupported, requestDocumentFullscreen } from "../../utils/fullscreen";
+import { shareExamLink } from "../../utils/pwa";
 
 export const ExamInstructionsPage = () => {
   const { examId } = useParams();
@@ -14,6 +15,7 @@ export const ExamInstructionsPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [fullscreenWarning, setFullscreenWarning] = useState("");
+  const [shareMessage, setShareMessage] = useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -63,6 +65,26 @@ export const ExamInstructionsPage = () => {
       }
 
       setError(requestError.response?.data?.message || "Unable to start exam");
+    }
+  };
+
+  const shareExam = async () => {
+    if (!exam) {
+      return;
+    }
+
+    const outcome = await shareExamLink({
+      title: exam.title,
+      text: "Join this exam on Exam Platform",
+      url: window.location.href
+    }).catch(() => "failed");
+
+    if (outcome === "copied") {
+      setShareMessage("Exam link copied.");
+    } else if (outcome === "shared") {
+      setShareMessage("Exam shared.");
+    } else {
+      setShareMessage("Exam share nahi ho paaya.");
     }
   };
 
@@ -168,6 +190,7 @@ export const ExamInstructionsPage = () => {
           </p>
         ) : null}
         {fullscreenWarning ? <p className="mt-4 text-sm text-amber-200">{fullscreenWarning}</p> : null}
+        {shareMessage ? <p className="mt-4 text-sm text-neutral-200">{shareMessage}</p> : null}
 
         <div className="glass-divider mt-8" />
 
@@ -177,9 +200,14 @@ export const ExamInstructionsPage = () => {
               ? "You already have an active attempt. Continuing will resume it from where you left off."
               : "Start when you are ready. The timer begins as soon as the attempt loads."}
           </p>
-          <Button className="w-full sm:w-auto" onClick={beginAttempt} disabled={exam.isLocked}>
-            {exam.isLocked ? "Locked" : exam.hasActiveAttempt ? "Resume Exam" : "Begin Exam"}
-          </Button>
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+            <Button variant="secondary" className="w-full sm:w-auto" onClick={shareExam}>
+              Share Exam
+            </Button>
+            <Button className="w-full sm:w-auto" onClick={beginAttempt} disabled={exam.isLocked}>
+              {exam.isLocked ? "Locked" : exam.hasActiveAttempt ? "Resume Exam" : "Begin Exam"}
+            </Button>
+          </div>
         </div>
       </Card>
     </div>
