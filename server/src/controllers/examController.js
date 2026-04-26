@@ -106,6 +106,8 @@ const normalizeQuestions = (questions = []) =>
     };
   });
 
+const createShuffledOptionOrder = (question) => [...question.options].sort(() => Math.random() - 0.5).map((option) => option._id);
+
 const buildAttemptMeta = (exam, submittedAttempts, activeAttempt = null) => {
   const maxAttempts = Number(exam.maxAttempts || 0);
   const attemptsUsed = submittedAttempts;
@@ -154,6 +156,8 @@ export const createExam = asyncHandler(async (req, res) => {
   validateExamPayload({ title, duration, totalMarks, negativeMarking, questions, status });
 
   const normalizedQuestions = normalizeQuestions(questions || []);
+  const highestSortOrder = await Exam.findOne().sort({ sortOrder: -1 }).select("sortOrder").lean();
+  const nextSortOrder = Number(req.body.sortOrder || 0) || Number(highestSortOrder?.sortOrder || 0) + 1;
 
   const exam = await Exam.create({
     title,
@@ -161,6 +165,7 @@ export const createExam = asyncHandler(async (req, res) => {
     subject,
     topic,
     playlist,
+    sortOrder: nextSortOrder,
     examKind: req.body.examKind || "standard",
     language: req.body.language || "english",
     currentAffairsCategory: req.body.currentAffairsCategory || "",
@@ -201,6 +206,7 @@ export const getAdminExams = asyncHandler(async (req, res) => {
         subject: 1,
         topic: 1,
         playlist: 1,
+        sortOrder: 1,
         examKind: 1,
         language: 1,
         currentAffairsCategory: 1,
@@ -221,7 +227,7 @@ export const getAdminExams = asyncHandler(async (req, res) => {
       }
     },
     {
-      $sort: { createdAt: -1 }
+      $sort: { sortOrder: 1, createdAt: -1 }
     }
   ]);
 
@@ -237,7 +243,7 @@ export const getAvailableExams = asyncHandler(async (req, res) => {
     endTime: { $gte: now }
   })
     .select("-questions.correctOptionIds")
-    .sort({ startTime: 1 });
+    .sort({ sortOrder: 1, startTime: 1 });
 
   const examIds = exams.map((exam) => exam._id);
   const [submittedResults, activeAttempts] = await Promise.all([
@@ -299,11 +305,18 @@ export const getExamById = asyncHandler(async (req, res) => {
       exam: exam._id,
       user: req.user._id,
       isSubmitted: false
-    }).select("_id startedAt")
+    }).select("_id startedAt answers.questionId answers.optionOrderIds")
   ]);
 
+  const optionOrderMap = activeAttempt
+    ? activeAttempt.answers.reduce((accumulator, answer) => {
+        accumulator[answer.questionId.toString()] = answer.optionOrderIds || [];
+        return accumulator;
+      }, {})
+    : {};
+
   return res.json({
-    ...sanitizeExamForCandidate(exam),
+    ...sanitizeExamForCandidate(exam, [], optionOrderMap),
     ...getLockState(exam),
     ...buildAttemptMeta(exam, submittedAttempts, activeAttempt)
   });
@@ -338,6 +351,7 @@ export const updateExam = asyncHandler(async (req, res) => {
   Object.assign(exam, {
     ...payload,
     examKind: payload.examKind ?? exam.examKind,
+    sortOrder: payload.sortOrder !== undefined ? Number(payload.sortOrder || 0) : exam.sortOrder,
     language: payload.language ?? exam.language,
     currentAffairsCategory: payload.currentAffairsCategory ?? exam.currentAffairsCategory,
     stateName: payload.stateName ?? exam.stateName,
@@ -443,6 +457,7 @@ export const startExamAttempt = asyncHandler(async (req, res) => {
       attemptNumber: submittedAttempts + 1,
       answers: orderedQuestions.map((question) => ({
         questionId: question._id,
+        optionOrderIds: createShuffledOptionOrder(question),
         selectedOptionIds: [],
         isSkipped: false,
         visited: false,
@@ -454,7 +469,14 @@ export const startExamAttempt = asyncHandler(async (req, res) => {
 
   res.json({
     exam: {
-      ...sanitizeExamForCandidate(exam, result.answers.map((answer) => answer.questionId)),
+      ...sanitizeExamForCandidate(
+        exam,
+        result.answers.map((answer) => answer.questionId),
+        result.answers.reduce((accumulator, answer) => {
+          accumulator[answer.questionId.toString()] = answer.optionOrderIds || [];
+          return accumulator;
+        }, {})
+      ),
       ...lockState,
       ...buildAttemptMeta(exam, submittedAttempts, activeAttempt)
     },
@@ -634,4 +656,20 @@ export const importQuestions = asyncHandler(async (req, res) => {
     ...question
   }));
   res.json({ questions });
+});
+
+export const reorderExams = asyncHandler(async (req, res) => {
+  const examIds = Array.isArray(req.body.examIds) ? req.body.examIds : [];
+
+  await Promise.all(
+    examIds.map((examId, index) =>
+      Exam.findByIdAndUpdate(examId, {
+        $set: {
+          sortOrder: index + 1
+        }
+      })
+    )
+  );
+
+  res.json({ message: "Exam order updated" });
 });

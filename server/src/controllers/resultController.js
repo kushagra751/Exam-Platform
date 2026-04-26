@@ -15,24 +15,6 @@ const buildResultAnalyzer = (result, exam, detailedAnswers) => {
   );
   const avgSecondsPerQuestion = totalQuestions ? Number(((durationMinutes * 60) / totalQuestions).toFixed(2)) : 0;
   const totalTrackedSeconds = detailedAnswers.reduce((sum, answer) => sum + Number(answer.timeSpentSeconds || 0), 0);
-  const slowestQuestions = [...detailedAnswers]
-    .map((answer, index) => ({
-      questionNumber: index + 1,
-      timeSpentSeconds: Number(answer.timeSpentSeconds || 0),
-      status: answer.isSkipped ? "Skipped" : answer.isCorrect ? "Correct" : answer.selectedOptionIds.length ? "Incorrect" : "Not attempted"
-    }))
-    .sort((left, right) => right.timeSpentSeconds - left.timeSpentSeconds)
-    .slice(0, 5);
-  const fastestQuestions = [...detailedAnswers]
-    .map((answer, index) => ({
-      questionNumber: index + 1,
-      timeSpentSeconds: Number(answer.timeSpentSeconds || 0),
-      status: answer.isSkipped ? "Skipped" : answer.isCorrect ? "Correct" : answer.selectedOptionIds.length ? "Incorrect" : "Not attempted"
-    }))
-    .filter((item) => item.timeSpentSeconds > 0)
-    .sort((left, right) => left.timeSpentSeconds - right.timeSpentSeconds)
-    .slice(0, 5);
-
   const reviewQuestionNumbers = detailedAnswers
     .map((answer, index) => ({ index, answer }))
     .filter(({ answer }) => !answer.isSkipped && !answer.isCorrect && answer.selectedOptionIds.length > 0)
@@ -74,8 +56,6 @@ const buildResultAnalyzer = (result, exam, detailedAnswers) => {
     durationMinutes,
     avgSecondsPerQuestion,
     totalTrackedSeconds,
-    slowestQuestions,
-    fastestQuestions,
     reviewQuestionNumbers,
     recommendations
   };
@@ -111,6 +91,12 @@ export const getResultById = asyncHandler(async (req, res) => {
     const savedAnswer = result.answers.find(
       (answer) => answer.questionId.toString() === question._id.toString()
     );
+    const orderedOptions =
+      savedAnswer?.optionOrderIds?.length
+        ? savedAnswer.optionOrderIds
+            .map((id) => question.options.find((option) => option._id.toString() === id.toString()))
+            .filter(Boolean)
+        : question.options;
 
     return {
       questionId: question._id,
@@ -122,7 +108,7 @@ export const getResultById = asyncHandler(async (req, res) => {
       currentAffairCategory: question.currentAffairCategory,
       sourceTitle: question.sourceTitle,
       sourceUrl: question.sourceUrl,
-      options: question.options,
+      options: orderedOptions,
       correctOptionIds: question.correctOptionIds,
       selectedOptionIds: savedAnswer?.selectedOptionIds || [],
       isSkipped: savedAnswer?.isSkipped || false,

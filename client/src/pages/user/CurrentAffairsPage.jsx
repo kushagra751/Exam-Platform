@@ -57,8 +57,7 @@ export const CurrentAffairsPage = () => {
         value: form.category === "state" ? `State: ${form.stateName || "Select state"}` : "India Current Affairs"
       },
       { label: "Questions", value: form.questionCount },
-      { label: "Timer", value: `${form.duration} minutes` },
-      { label: "Skip Limit", value: `${options.maxSkips} max skips` }
+      { label: "Timer", value: `${form.duration} minutes` }
     ];
   }, [form, options]);
 
@@ -339,9 +338,9 @@ export const CurrentAffairsPage = () => {
       </div>
 
       {confirmOpen ? (
-        <div className="fixed inset-0 z-50 bg-black/60 px-4 py-6" onClick={() => !submitting && setConfirmOpen(false)}>
-          <div
-            className="mx-auto max-w-md rounded-[30px] border border-white/10 bg-[#090909] p-5 shadow-2xl"
+      <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-4 py-6" onClick={() => !submitting && setConfirmOpen(false)}>
+        <div
+            className="mx-auto mt-[max(10vh,2rem)] max-w-md rounded-[30px] border border-white/10 bg-[#090909] p-5 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <p className="text-xs uppercase tracking-[0.28em] text-muted">Final Warning</p>

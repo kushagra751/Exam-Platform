@@ -1,19 +1,42 @@
 import crypto from "crypto";
 import CurrentAffairQuestion from "../models/CurrentAffairQuestion.js";
 
+const CATEGORY_BUCKETS = [
+  "government",
+  "education",
+  "sports",
+  "awards",
+  "economy",
+  "science",
+  "environment",
+  "culture",
+  "bollywood"
+];
+
 const INDIA_RSS_FEEDS = [
-  { provider: "PIB", url: "https://pib.gov.in/rss.aspx?feed=latestnews", type: "xml" },
-  { provider: "DD News", url: "https://ddnews.gov.in/en/feed/", type: "xml" }
+  { provider: "PIB", url: "https://pib.gov.in/rss.aspx?feed=latestnews" },
+  { provider: "DD News", url: "https://ddnews.gov.in/en/feed/" }
 ];
 
-const STATE_RSS_FEEDS = [
-  { provider: "PIB Rajasthan", url: "https://www.pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=6", type: "xml" },
-  { provider: "PIB Maharashtra", url: "https://www.pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3", type: "xml" },
-  { provider: "PIB Uttar Pradesh", url: "https://www.pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=11", type: "xml" }
-];
+const STATE_RSS_FEEDS = {
+  rajasthan: [{ provider: "PIB Rajasthan", url: "https://www.pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=6" }],
+  maharashtra: [{ provider: "PIB Maharashtra", url: "https://www.pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3" }],
+  "uttar pradesh": [{ provider: "PIB Uttar Pradesh", url: "https://www.pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=11" }]
+};
 
-const MAX_SOURCE_ITEMS = 40;
-const MAX_GENERATED_PER_REQUEST = 18;
+const MAX_SOURCE_ITEMS = 80;
+const MAX_GENERATED_PER_REQUEST = 28;
+const MIN_SOURCE_AGE_DAYS = 3;
+const MAX_SOURCE_AGE_DAYS = 45;
+
+const shuffleArray = (items = []) => [...items].sort(() => Math.random() - 0.5);
+
+const normalizeStateName = (value = "") => value.trim().toLowerCase();
+
+const toDateKey = (value = new Date()) => {
+  const date = value instanceof Date ? value : new Date(value);
+  return date.toISOString().slice(0, 10);
+};
 
 const escapeXml = (value = "") =>
   value
@@ -27,12 +50,20 @@ const escapeXml = (value = "") =>
     .replace(/\s+/g, " ")
     .trim();
 
-const toDateKey = (value = new Date()) => {
-  const date = value instanceof Date ? value : new Date(value);
-  return date.toISOString().slice(0, 10);
+const parseDate = (value) => {
+  const date = value ? new Date(value) : null;
+  return date instanceof Date && !Number.isNaN(date?.getTime?.()) ? date : null;
 };
 
-const normalizeStateName = (value = "") => value.trim().toLowerCase();
+const isDateInExamWindow = (value) => {
+  const date = parseDate(value);
+  if (!date) {
+    return false;
+  }
+
+  const diffDays = (Date.now() - date.getTime()) / (24 * 60 * 60 * 1000);
+  return diffDays >= MIN_SOURCE_AGE_DAYS && diffDays <= MAX_SOURCE_AGE_DAYS;
+};
 
 const buildSourceHash = (source, language, category, stateName) =>
   crypto
@@ -69,9 +100,7 @@ const fetchJsonNews = async (url, mapper) => {
   }
 
   const payload = await safeJson(response);
-  return Array.isArray(payload?.articles) || Array.isArray(payload?.news)
-    ? mapper(payload)
-    : [];
+  return Array.isArray(payload?.articles) || Array.isArray(payload?.news) ? mapper(payload) : [];
 };
 
 const fetchRssFeed = async ({ provider, url }) => {
@@ -119,15 +148,18 @@ const dedupeSources = (sources = []) => {
   });
 };
 
-const buildSearchTerms = ({ category, stateName, language }) => {
-  const state = stateName?.trim();
-  const localeTerm = language === "hindi" ? "Hindi" : "English";
+const looksLikeStateArticle = (source, stateName) => {
+  const needle = normalizeStateName(stateName);
+  const content = `${source.title} ${source.description}`.toLowerCase();
+  return content.includes(needle);
+};
 
-  if (category === "state" && state) {
-    return [`${state} current affairs`, `${state} government news`, `${state} latest updates ${localeTerm}`];
+const buildSearchTerms = ({ category, stateName }) => {
+  if (category === "state" && stateName) {
+    return CATEGORY_BUCKETS.map((bucket) => `${stateName} ${bucket} current affairs government exam`);
   }
 
-  return ["India current affairs", "India government news", `India latest updates ${localeTerm}`];
+  return CATEGORY_BUCKETS.map((bucket) => `India ${bucket} current affairs government exam`);
 };
 
 const fetchApiSources = async (config) => {
@@ -193,61 +225,56 @@ const fetchApiSources = async (config) => {
 };
 
 const fetchRssSources = async (config) => {
-  const feeds = config.category === "state" ? [...STATE_RSS_FEEDS, ...INDIA_RSS_FEEDS] : INDIA_RSS_FEEDS;
-  const groups = await Promise.all(feeds.map((feed) => fetchRssFeed(feed).catch(() => [])));
-  const sources = groups.flat();
-
-  if (config.category !== "state" || !config.stateName) {
-    return sources;
+  if (config.category === "state") {
+    const feeds = STATE_RSS_FEEDS[normalizeStateName(config.stateName)] || [];
+    const groups = await Promise.all(feeds.map((feed) => fetchRssFeed(feed).catch(() => [])));
+    return groups.flat();
   }
 
-  const stateNeedle = normalizeStateName(config.stateName);
-  const stateMatches = sources.filter((source) =>
-    `${source.title} ${source.description}`.toLowerCase().includes(stateNeedle)
-  );
-
-  return stateMatches.length ? stateMatches : sources;
+  const groups = await Promise.all(INDIA_RSS_FEEDS.map((feed) => fetchRssFeed(feed).catch(() => [])));
+  return groups.flat();
 };
 
+const filterSources = (sources, config) =>
+  dedupeSources(sources)
+    .filter((source) => source.title && source.url && isDateInExamWindow(source.publishedAt))
+    .filter((source) => (config.category === "state" ? looksLikeStateArticle(source, config.stateName) : true))
+    .slice(0, MAX_SOURCE_ITEMS);
+
 const buildFallbackQuestion = (source, config) => {
-  const eventDate = source.publishedAt ? new Date(source.publishedAt) : new Date();
-  const cleanDate = eventDate.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric"
-  });
+  const eventDate = parseDate(source.publishedAt) || new Date();
   const summary = source.description?.trim() || source.title;
-  const promptLead =
+
+  const prompt =
     config.language === "hindi"
-      ? `हाल की करंट अफेयर्स रिपोर्ट के अनुसार, ${source.title} से जुड़ा सही कथन कौन सा है?`
-      : `According to the current affairs update, which statement best matches "${source.title}"?`;
+      ? `${source.title} se sambandhit sahi tathya kaun sa hai?`
+      : `Which statement about "${source.title}" is correct?`;
 
   const correctText =
     config.language === "hindi"
-      ? `${summary} यह घटना ${cleanDate} की रिपोर्ट में प्रमुख रही।`
-      : `${summary} This was highlighted in the report dated ${cleanDate}.`;
+      ? summary
+      : summary;
 
   const distractors =
     config.language === "hindi"
       ? [
-          `यह खबर केवल खेल कैलेंडर में संभावित कार्यक्रम के रूप में आई थी।`,
-          `यह रिपोर्ट किसी निजी मनोरंजन सर्वे से संबंधित थी, सरकारी या राष्ट्रीय अपडेट से नहीं।`,
-          `यह कथन गलत है क्योंकि इसमें घटना की जगह और तारीख दोनों बदल दिए गए हैं।`
+          "Yah statement ghatna ko galat sector se jodta hai.",
+          "Yah option date aur prashasanik context dono badal deta hai.",
+          "Yah statement sambandhit report ki jagah kisi anya kshetra ki update batata hai."
         ]
       : [
-          "This update was only about a sports schedule preview and not the reported event itself.",
-          "This referred to a private entertainment survey rather than the public affairs development described here.",
-          "This statement is inaccurate because it changes both the date and context of the reported event."
+          "This option links the event to the wrong sector.",
+          "This option changes both the date and administrative context.",
+          "This option describes a different update from another area."
         ];
 
+  const optionTexts = shuffleArray([correctText, ...distractors]);
+
   return {
-    question: promptLead,
-    options: [correctText, ...distractors].map((text) => ({ text })),
-    correctOptionIndex: 0,
-    explanation:
-      config.language === "hindi"
-        ? `${source.title} ${summary}`
-        : `${source.title} ${summary}`,
+    question: prompt,
+    options: optionTexts.map((text) => ({ text })),
+    correctOptionIndex: optionTexts.findIndex((text) => text === correctText),
+    explanation: summary,
     eventDate,
     difficulty: "medium"
   };
@@ -266,13 +293,13 @@ const generateWithOpenAI = async (source, config) => {
     },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-      temperature: 0.4,
+      temperature: 0.45,
       response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
           content:
-            "You turn current affairs articles into one high-quality exam MCQ. Return JSON with keys: question, options, correctOptionIndex, explanation, eventDate, difficulty. Options must be an array of exactly 4 strings. correctOptionIndex must be 0-3."
+            "Create one important government-exam style current affairs MCQ. Return JSON with question, options, correctOptionIndex, explanation, eventDate, difficulty, tags. The question must be direct, no intro line like 'According to current affairs'. Keep exactly 4 options. The correct answer must not be predictably placed, so randomize where it appears. Prefer important public-affairs facts from sports, bollywood, education, awards, government, economy, science, culture, or environment."
         },
         {
           role: "user",
@@ -296,13 +323,14 @@ const generateWithOpenAI = async (source, config) => {
 
   const payload = await response.json();
   const content = payload.choices?.[0]?.message?.content;
-
   if (!content) {
     return null;
   }
 
   const parsed = JSON.parse(content);
-  const options = Array.isArray(parsed.options) ? parsed.options.slice(0, 4).map((text) => ({ text: String(text).trim() })) : [];
+  const options = Array.isArray(parsed.options)
+    ? parsed.options.slice(0, 4).map((text) => ({ text: String(text).trim() }))
+    : [];
 
   if (!parsed.question || options.length !== 4 || !Number.isInteger(parsed.correctOptionIndex)) {
     return null;
@@ -313,8 +341,9 @@ const generateWithOpenAI = async (source, config) => {
     options,
     correctOptionIndex: parsed.correctOptionIndex,
     explanation: String(parsed.explanation || "").trim(),
-    eventDate: parsed.eventDate ? new Date(parsed.eventDate) : source.publishedAt ? new Date(source.publishedAt) : null,
-    difficulty: String(parsed.difficulty || "medium").trim().toLowerCase()
+    eventDate: parsed.eventDate ? new Date(parsed.eventDate) : parseDate(source.publishedAt),
+    difficulty: String(parsed.difficulty || "medium").trim().toLowerCase(),
+    tags: Array.isArray(parsed.tags) ? parsed.tags.map((item) => String(item).trim()) : []
   };
 };
 
@@ -345,7 +374,7 @@ const buildQuestionRecord = async (source, config) => {
     sourceProvider: source.provider,
     difficulty: fallback.difficulty || "medium",
     sourceSummary: source.description || "",
-    tags: [config.category, config.stateName || "india", config.language].filter(Boolean)
+    tags: fallback.tags?.length ? fallback.tags : [config.category, config.stateName || "india", config.language]
   };
 };
 
@@ -370,8 +399,7 @@ export const getCurrentAffairsConfig = () => ({
   questionPresets: [10, 20, 50, 100],
   timerPresets: [10, 20, 50, 100, 160],
   maxTimerMinutes: 160,
-  maxSkips: 5,
-  defaultNegativeMarking: 0.25,
+  defaultNegativeMarking: 0,
   states: [
     "Andhra Pradesh",
     "Assam",
@@ -407,13 +435,7 @@ export const validateCurrentAffairsRequest = (payload = {}) => {
     throw new Error("Please select a state for state current affairs.");
   }
 
-  return {
-    language,
-    category,
-    stateName,
-    questionCount,
-    duration
-  };
+  return { language, category, stateName, questionCount, duration };
 };
 
 export const getCurrentAffairsCacheKey = (config) =>
@@ -433,10 +455,7 @@ export const ensureCurrentAffairQuestionPool = async (config) => {
     return cached;
   }
 
-  const fetchedSources = dedupeSources([...(await fetchApiSources(config)), ...(await fetchRssSources(config))])
-    .filter((source) => source.title && source.url)
-    .slice(0, MAX_SOURCE_ITEMS);
-
+  const fetchedSources = filterSources([...(await fetchApiSources(config)), ...(await fetchRssSources(config))], config);
   const existingHashes = new Set(cached.map((item) => item.sourceHash));
   const freshSources = fetchedSources
     .filter((source) => !existingHashes.has(buildSourceHash(source, config.language, config.category, config.stateName)))
@@ -444,8 +463,7 @@ export const ensureCurrentAffairQuestionPool = async (config) => {
 
   const records = [];
   for (const source of freshSources) {
-    const record = await buildQuestionRecord(source, config);
-    records.push(record);
+    records.push(await buildQuestionRecord(source, config));
   }
 
   if (records.length) {
@@ -453,38 +471,35 @@ export const ensureCurrentAffairQuestionPool = async (config) => {
   }
 
   cached = await CurrentAffairQuestion.find(lookup).sort({ createdAt: -1 }).lean();
-
   if (cached.length >= config.questionCount) {
     return cached;
   }
 
-  const fallbackWindow = await CurrentAffairQuestion.find({
+  return CurrentAffairQuestion.find({
     language: config.language,
     category: config.category,
     stateName: config.stateName || ""
   })
     .sort({ createdAt: -1 })
-    .limit(Math.max(config.questionCount, 30))
+    .limit(Math.max(config.questionCount, 40))
     .lean();
-
-  return fallbackWindow;
 };
 
-export const pickQuestionsForCurrentAffairsExam = (questionPool, questionCount) => {
-  const shuffled = [...questionPool].sort(() => Math.random() - 0.5).slice(0, questionCount);
-  return shuffled.map((item) => ({
-    prompt: item.question,
-    type: "single",
-    marks: 1,
-    explanation: item.explanation,
-    eventDate: item.eventDate,
-    currentAffairCategory: item.category,
-    sourceTitle: item.sourceTitle,
-    sourceUrl: item.sourceUrl,
-    options: item.options.map((option, index) => ({
-      _id: crypto.randomUUID(),
-      text: option.text,
-      isCorrect: index === item.correctOptionIndex
-    }))
-  }));
-};
+export const pickQuestionsForCurrentAffairsExam = (questionPool, questionCount) =>
+  shuffleArray(questionPool)
+    .slice(0, questionCount)
+    .map((item) => ({
+      prompt: item.question,
+      type: "single",
+      marks: 1,
+      explanation: item.explanation,
+      eventDate: item.eventDate,
+      currentAffairCategory: item.category,
+      sourceTitle: item.sourceTitle,
+      sourceUrl: item.sourceUrl,
+      options: item.options.map((option, index) => ({
+        _id: crypto.randomUUID(),
+        text: option.text,
+        isCorrect: index === item.correctOptionIndex
+      }))
+    }));

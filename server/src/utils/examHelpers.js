@@ -21,7 +21,7 @@ export const getMaximumMarks = (exam) => {
   return marksFromQuestions > 0 ? Number(marksFromQuestions.toFixed(2)) : Number(exam.totalMarks || 0);
 };
 
-export const sanitizeExamForCandidate = (exam, questionOrder = []) => {
+export const sanitizeExamForCandidate = (exam, questionOrder = [], optionOrderMap = {}) => {
   const examObject = exam.toObject ? exam.toObject() : exam;
   const orderedQuestions = questionOrder.length
     ? questionOrder
@@ -49,6 +49,7 @@ export const sanitizeExamForCandidate = (exam, questionOrder = []) => {
     endTime: examObject.endTime,
     isLocked: examObject.isLocked,
     lockedUntil: examObject.lockedUntil,
+    sortOrder: examObject.sortOrder,
     questions: orderedQuestions.map((question) => ({
       _id: question._id,
       prompt: question.prompt,
@@ -56,7 +57,13 @@ export const sanitizeExamForCandidate = (exam, questionOrder = []) => {
       marks: question.marks,
       eventDate: question.eventDate,
       currentAffairCategory: question.currentAffairCategory,
-      options: question.options.map((option) => ({
+      options: (
+        (optionOrderMap[question._id.toString()]?.length
+          ? optionOrderMap[question._id.toString()]
+              .map((id) => question.options.find((option) => option._id.toString() === id.toString()))
+              .filter(Boolean)
+          : question.options)
+      ).map((option) => ({
         _id: option._id,
         text: option.text
       }))

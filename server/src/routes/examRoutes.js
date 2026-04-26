@@ -8,6 +8,7 @@ import {
   getDashboardAnalytics,
   getExamById,
   importQuestions,
+  reorderExams,
   getResultsForExam,
   saveAnswer,
   startExamAttempt,
@@ -21,6 +22,7 @@ const router = express.Router();
 
 router.get("/available", protect, authorize("user", "admin"), getAvailableExams);
 router.get("/admin", protect, authorize("admin"), getAdminExams);
+router.put("/admin/reorder", protect, authorize("admin"), reorderExams);
 router.get("/analytics", protect, authorize("admin"), getDashboardAnalytics);
 router.post("/import-questions", protect, authorize("admin"), upload.single("file"), importQuestions);
 router.get("/:id", protect, getExamById);

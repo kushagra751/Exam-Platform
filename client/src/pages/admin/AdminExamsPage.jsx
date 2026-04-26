@@ -69,6 +69,18 @@ D. 9
 Answer: A,C
 Type: multiple`;
 
+const ArrowUpIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <path d="m6 15 6-6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const ArrowDownIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
 export const AdminExamsPage = () => {
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -194,6 +206,30 @@ export const AdminExamsPage = () => {
 
     if (editingId === id) {
       resetForm();
+    }
+  };
+
+  const moveExam = async (index, direction) => {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= filteredExams.length) {
+      return;
+    }
+
+    const reordered = [...filteredExams];
+    [reordered[index], reordered[nextIndex]] = [reordered[nextIndex], reordered[index]];
+    const orderedIds = reordered.map((exam) => exam._id);
+
+    setExams((prev) => {
+      const orderMap = new Map(orderedIds.map((id, position) => [id, position]));
+      return [...prev].sort((left, right) => (orderMap.get(left._id) ?? 9999) - (orderMap.get(right._id) ?? 9999));
+    });
+
+    try {
+      await api.put("/exams/admin/reorder", { examIds: orderedIds });
+      await loadExams();
+    } catch (requestError) {
+      setError(getRequestErrorMessage(requestError, "Unable to update exam order"));
+      await loadExams();
     }
   };
 
@@ -451,6 +487,7 @@ export const AdminExamsPage = () => {
                       <div className="flex flex-wrap items-center gap-3">
                         <h3 className="text-xl font-semibold text-white">{exam.title}</h3>
                         <span className="soft-chip">{exam.status}</span>
+                        <span className="soft-chip">Order {exam.sortOrder || 0}</span>
                       </div>
                       <p className="mt-3 text-sm leading-6 text-muted">{exam.description}</p>
                       <p className="mt-3 text-sm text-muted">{[exam.subject, exam.topic, exam.playlist].filter(Boolean).join(" | ") || "No subject tags yet"}</p>
@@ -465,6 +502,14 @@ export const AdminExamsPage = () => {
                       ) : null}
                     </div>
                     <div className="flex flex-col gap-3 sm:flex-row">
+                      <Button variant="secondary" className="w-full sm:w-auto" onClick={() => moveExam(filteredExams.findIndex((item) => item._id === exam._id), -1)}>
+                        <ArrowUpIcon />
+                        <span className="sr-only">Move up</span>
+                      </Button>
+                      <Button variant="secondary" className="w-full sm:w-auto" onClick={() => moveExam(filteredExams.findIndex((item) => item._id === exam._id), 1)}>
+                        <ArrowDownIcon />
+                        <span className="sr-only">Move down</span>
+                      </Button>
                       <Button variant="secondary" className="w-full sm:w-auto" onClick={() => onEdit(exam)}>
                         Edit
                       </Button>

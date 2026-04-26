@@ -81,9 +81,9 @@ export const createCurrentAffairsExam = asyncHandler(async (req, res) => {
     stateName: config.stateName,
     duration: config.duration,
     totalMarks: normalizedQuestions.length,
-    negativeMarking: 0.25,
+    negativeMarking: 0,
     maxAttempts: 1,
-    maxSkips: 5,
+    maxSkips: 0,
     status: "published",
     isLocked: false,
     lockedUntil: null,
@@ -104,7 +104,6 @@ export const createCurrentAffairsExam = asyncHandler(async (req, res) => {
     duration: exam.duration,
     language: exam.language,
     category: exam.currentAffairsCategory,
-    stateName: exam.stateName,
-    maxSkips: exam.maxSkips
+    stateName: exam.stateName
   });
 });

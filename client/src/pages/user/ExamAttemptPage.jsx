@@ -632,12 +632,14 @@ export const ExamAttemptPage = () => {
         {fullscreenWarning ? <p className="rounded-2xl bg-red-950/35 px-4 py-3 text-sm text-red-100">{fullscreenWarning}</p> : null}
 
         {examLockedByFullscreen ? (
-          <Card className="rounded-[28px] p-4 text-center">
-            <p className="text-sm text-red-100">Exam tab abhi locked hai. Continue karne ke liye fullscreen me wapas aao.</p>
-            <Button className="mt-4 w-full sm:w-auto" onClick={requestFullscreen}>
-              Enter Fullscreen
-            </Button>
-          </Card>
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/72 px-4">
+            <Card className="w-full max-w-md rounded-[28px] p-5 text-center">
+              <p className="text-sm text-red-100">Exam tab abhi locked hai. Continue karne ke liye fullscreen me wapas aao.</p>
+              <Button className="mt-4 w-full sm:w-auto" onClick={requestFullscreen}>
+                Enter Fullscreen
+              </Button>
+            </Card>
+          </div>
         ) : null}
 
         <div className="grid gap-4">

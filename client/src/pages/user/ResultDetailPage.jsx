@@ -133,33 +133,18 @@ export const ResultDetailPage = () => {
             ))}
           </div>
 
-          <div className="mt-5 grid gap-3 lg:grid-cols-3">
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
             <div className="rounded-[24px] border border-white/8 bg-black/25 p-4">
-              <p className="text-xs uppercase tracking-[0.24em] text-muted">Slowest Questions</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-muted">Focus Review</p>
               <div className="mt-3 space-y-2 text-sm text-white">
-                {result.analyzer.slowestQuestions.length ? (
-                  result.analyzer.slowestQuestions.map((item) => (
+                {result.analyzer.reviewQuestionNumbers?.length ? (
+                  result.analyzer.reviewQuestionNumbers.map((item) => (
                     <p key={`${item.questionNumber}-${item.timeSpentSeconds}`}>
-                      Q{item.questionNumber} - {item.timeSpentSeconds}s
+                      Q{item.questionNumber} - {item.timeSpentSeconds}s - {item.marksImpact} marks
                     </p>
                   ))
                 ) : (
-                  <p className="text-muted">-</p>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-[24px] border border-white/8 bg-black/25 p-4">
-              <p className="text-xs uppercase tracking-[0.24em] text-muted">Fastest Questions</p>
-              <div className="mt-3 space-y-2 text-sm text-white">
-                {result.analyzer.fastestQuestions.length ? (
-                  result.analyzer.fastestQuestions.map((item) => (
-                    <p key={`${item.questionNumber}-${item.timeSpentSeconds}`}>
-                      Q{item.questionNumber} - {item.timeSpentSeconds}s
-                    </p>
-                  ))
-                ) : (
-                  <p className="text-muted">-</p>
+                  <p className="text-muted">No risky wrong answers captured.</p>
                 )}
               </div>
             </div>

@@ -10,6 +10,10 @@ const answerSchema = new mongoose.Schema(
       type: [mongoose.Schema.Types.ObjectId],
       default: []
     },
+    optionOrderIds: {
+      type: [mongoose.Schema.Types.ObjectId],
+      default: []
+    },
     isCorrect: {
       type: Boolean,
       default: false
