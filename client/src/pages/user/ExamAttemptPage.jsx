@@ -15,6 +15,13 @@ import { formatCountdown, getTimeRemainingInSeconds } from "../../utils/format";
 import { enqueueAttemptAction, flushAttemptQueue, getQueuedAttemptCount } from "../../utils/offlineAttemptQueue";
 
 const getOptionLabel = (index) => String.fromCharCode(65 + index);
+const QuestionMenuIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
+    <circle cx="5" cy="12" r="1.8" />
+    <circle cx="12" cy="12" r="1.8" />
+    <circle cx="19" cy="12" r="1.8" />
+  </svg>
+);
 
 export const ExamAttemptPage = () => {
   const { examId } = useParams();
@@ -403,6 +410,9 @@ export const ExamAttemptPage = () => {
   }, [answers, attempt]);
 
   const examLockedByFullscreen = fullscreenSupported && needsFullscreen;
+  const skipLimit = Number(attempt?.exam.maxSkips || 0);
+  const skipCount = answers.filter((answer) => answer.isSkipped).length;
+  const remainingSkips = skipLimit > 0 ? Math.max(skipLimit - skipCount, 0) : null;
 
   const updateSelection = (optionId) => {
     if (!currentQuestion || !currentAnswer || examLockedByFullscreen) {
@@ -431,6 +441,11 @@ export const ExamAttemptPage = () => {
       return;
     }
 
+    if (!currentAnswer.isSkipped && skipLimit > 0 && skipCount >= skipLimit) {
+      setError(`Skip limit reached. You can skip only ${skipLimit} question(s) in this exam.`);
+      return;
+    }
+
     updateAnswerState(currentQuestion._id, () => ({
       selectedOptionIds: [],
       isSkipped: true,
@@ -440,7 +455,7 @@ export const ExamAttemptPage = () => {
     try {
       await saveAnswer(currentQuestion._id);
     } catch (requestError) {
-      setError("Unable to save skipped state.");
+      setError(requestError.response?.data?.message || "Unable to save skipped state.");
     }
   };
 
@@ -635,6 +650,11 @@ export const ExamAttemptPage = () => {
                   <span>{currentQuestion.marks} marks</span>
                   {currentAnswer.isSkipped ? <span className="rounded-full bg-amber-500/12 px-2 py-1 tracking-normal text-amber-200">Not attempted</span> : null}
                   {currentAnswer.markedForReview ? <span className="rounded-full bg-rose-500/12 px-2 py-1 tracking-normal text-rose-200">Review</span> : null}
+                  {skipLimit > 0 ? (
+                    <span className="rounded-full bg-white/8 px-2 py-1 tracking-normal text-neutral-200">
+                      {remainingSkips} skips left
+                    </span>
+                  ) : null}
                 </div>
                 <button
                   type="button"
@@ -642,7 +662,7 @@ export const ExamAttemptPage = () => {
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white"
                   aria-label="Open question list"
                 >
-                  ⋯
+                  <QuestionMenuIcon />
                 </button>
               </div>
 
@@ -673,7 +693,7 @@ export const ExamAttemptPage = () => {
 
                 <button
                   onClick={skipQuestion}
-                  disabled={examLockedByFullscreen}
+                  disabled={examLockedByFullscreen || (!currentAnswer.isSkipped && skipLimit > 0 && skipCount >= skipLimit)}
                   className={`flex w-full items-start gap-4 rounded-[22px] border px-4 py-4 text-left transition ${
                     currentAnswer.isSkipped
                       ? "border-amber-300 bg-amber-500/12 text-white"
@@ -683,7 +703,10 @@ export const ExamAttemptPage = () => {
                   <span className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${currentAnswer.isSkipped ? "border-amber-200 bg-amber-200 text-black" : "border-white/20 text-muted"}`}>
                     E
                   </span>
-                  <span className="text-sm leading-6">5th option: no negative mark and count as not attempted</span>
+                  <span className="text-sm leading-6">
+                    5th option: no negative mark and count as not attempted
+                    {skipLimit > 0 ? ` (${remainingSkips} left)` : ""}
+                  </span>
                 </button>
               </div>
 

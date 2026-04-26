@@ -45,6 +45,25 @@ const questionSchema = new mongoose.Schema(
     explanation: {
       type: String,
       default: ""
+    },
+    eventDate: {
+      type: Date,
+      default: null
+    },
+    currentAffairCategory: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    sourceTitle: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    sourceUrl: {
+      type: String,
+      default: "",
+      trim: true
     }
   },
   { _id: true }
@@ -76,6 +95,26 @@ const examSchema = new mongoose.Schema(
       default: "",
       trim: true
     },
+    examKind: {
+      type: String,
+      enum: ["standard", "current-affairs"],
+      default: "standard"
+    },
+    language: {
+      type: String,
+      default: "english",
+      trim: true
+    },
+    currentAffairsCategory: {
+      type: String,
+      default: "",
+      trim: true
+    },
+    stateName: {
+      type: String,
+      default: "",
+      trim: true
+    },
     duration: {
       type: Number,
       required: true,
@@ -94,6 +133,11 @@ const examSchema = new mongoose.Schema(
     maxAttempts: {
       type: Number,
       default: 1,
+      min: 0
+    },
+    maxSkips: {
+      type: Number,
+      default: 0,
       min: 0
     },
     status: {
@@ -120,6 +164,15 @@ const examSchema = new mongoose.Schema(
     shuffleQuestions: {
       type: Boolean,
       default: true
+    },
+    isSystemGenerated: {
+      type: Boolean,
+      default: false
+    },
+    generatedFromCacheKey: {
+      type: String,
+      default: "",
+      trim: true
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

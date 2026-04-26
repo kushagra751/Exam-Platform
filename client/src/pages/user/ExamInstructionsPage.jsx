@@ -143,6 +143,13 @@ export const ExamInstructionsPage = () => {
             <p className="mt-2 text-3xl font-semibold text-white">{formatNegativeMarking(exam.negativeMarking)}</p>
             <p className="text-xs text-muted">per wrong answer</p>
           </div>
+          {exam.maxSkips ? (
+            <div className="metric-tile">
+              <p className="text-xs uppercase tracking-[0.25em] text-muted">Skip Limit</p>
+              <p className="mt-2 text-3xl font-semibold text-white">{exam.maxSkips}</p>
+              <p className="text-xs text-muted">maximum skip actions</p>
+            </div>
+          ) : null}
           <div className="metric-tile">
             <p className="text-xs uppercase tracking-[0.25em] text-muted">Mode</p>
             <p className="mt-2 text-xl font-semibold text-white">
@@ -183,6 +190,13 @@ export const ExamInstructionsPage = () => {
                   You can navigate freely using next, previous, and the question palette throughout the attempt.
                 </p>
               </div>
+              {exam.examKind === "current-affairs" ? (
+                <div className="metric-tile">
+                  <p className="text-sm leading-6 text-white">
+                    This paper is auto-generated from current affairs feeds in {exam.language === "hindi" ? "Hindi" : "English"} with {exam.maxSkips || 0} allowed skips.
+                  </p>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

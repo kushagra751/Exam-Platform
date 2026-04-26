@@ -5,6 +5,14 @@ export const formatDateTime = (value) =>
   });
 
 export const formatDuration = (minutes) => `${minutes} min`;
+export const formatDateOnly = (value) =>
+  value
+    ? new Date(value).toLocaleDateString([], {
+        day: "numeric",
+        month: "short",
+        year: "numeric"
+      })
+    : "-";
 
 export const formatNegativeMarking = (value) => {
   const numeric = Number(value);

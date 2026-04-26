@@ -97,6 +97,10 @@ const normalizeQuestions = (questions = []) =>
       type: question.type,
       marks: parseFlexibleNumber(question.marks || 1),
       explanation: question.explanation || "",
+      eventDate: question.eventDate || null,
+      currentAffairCategory: question.currentAffairCategory || "",
+      sourceTitle: question.sourceTitle || "",
+      sourceUrl: question.sourceUrl || "",
       options: normalizedOptions,
       correctOptionIds
     };
@@ -157,10 +161,15 @@ export const createExam = asyncHandler(async (req, res) => {
     subject,
     topic,
     playlist,
+    examKind: req.body.examKind || "standard",
+    language: req.body.language || "english",
+    currentAffairsCategory: req.body.currentAffairsCategory || "",
+    stateName: req.body.stateName || "",
     duration: parseFlexibleNumber(duration),
     totalMarks: normalizedQuestions.length ? getMaximumMarks({ questions: normalizedQuestions }) : parseFlexibleNumber(totalMarks),
     negativeMarking: parseFlexibleNumber(negativeMarking),
     maxAttempts: parseAttemptLimit(req.body.maxAttempts),
+    maxSkips: Number(req.body.maxSkips || 0),
     isLocked: Boolean(isLocked),
     lockedUntil: lockedUntil || null,
     startTime,
@@ -176,6 +185,11 @@ export const createExam = asyncHandler(async (req, res) => {
 export const getAdminExams = asyncHandler(async (req, res) => {
   const exams = await Exam.aggregate([
     {
+      $match: {
+        examKind: { $ne: "current-affairs" }
+      }
+    },
+    {
       $addFields: {
         questionCount: { $size: "$questions" }
       }
@@ -187,10 +201,15 @@ export const getAdminExams = asyncHandler(async (req, res) => {
         subject: 1,
         topic: 1,
         playlist: 1,
+        examKind: 1,
+        language: 1,
+        currentAffairsCategory: 1,
+        stateName: 1,
         duration: 1,
         totalMarks: 1,
         negativeMarking: 1,
         maxAttempts: 1,
+        maxSkips: 1,
         status: 1,
         isLocked: 1,
         lockedUntil: 1,
@@ -212,6 +231,7 @@ export const getAdminExams = asyncHandler(async (req, res) => {
 export const getAvailableExams = asyncHandler(async (req, res) => {
   const now = new Date();
   const exams = await Exam.find({
+    examKind: { $ne: "current-affairs" },
     status: "published",
     startTime: { $lte: now },
     endTime: { $gte: now }
@@ -317,6 +337,10 @@ export const updateExam = asyncHandler(async (req, res) => {
 
   Object.assign(exam, {
     ...payload,
+    examKind: payload.examKind ?? exam.examKind,
+    language: payload.language ?? exam.language,
+    currentAffairsCategory: payload.currentAffairsCategory ?? exam.currentAffairsCategory,
+    stateName: payload.stateName ?? exam.stateName,
     duration: payload.duration !== undefined ? parseFlexibleNumber(payload.duration) : exam.duration,
     totalMarks: payload.questions
       ? getMaximumMarks({ questions: normalizedQuestions })
@@ -328,6 +352,7 @@ export const updateExam = asyncHandler(async (req, res) => {
         ? parseFlexibleNumber(payload.negativeMarking)
         : exam.negativeMarking,
     maxAttempts: payload.maxAttempts !== undefined ? parseAttemptLimit(payload.maxAttempts) : exam.maxAttempts,
+    maxSkips: payload.maxSkips !== undefined ? Number(payload.maxSkips || 0) : exam.maxSkips,
     isLocked: payload.isLocked !== undefined ? Boolean(payload.isLocked) : exam.isLocked,
     lockedUntil: payload.lockedUntil !== undefined ? payload.lockedUntil || null : exam.lockedUntil,
     questions: normalizedQuestions
@@ -493,6 +518,18 @@ export const saveAnswer = asyncHandler(async (req, res) => {
   const normalizedSelections = [...new Set(selectedOptionIds.map((id) => id.toString()))].filter((id) =>
     allowedOptionIds.has(id)
   );
+
+  if (isSkipped && Number(exam.maxSkips || 0) > 0) {
+    const existingSkippedElsewhere = result.answers.filter(
+      (item) => item.questionId.toString() !== questionId && Boolean(item.isSkipped)
+    ).length;
+    const alreadySkipped = Boolean(answer.isSkipped);
+
+    if (!alreadySkipped && existingSkippedElsewhere >= Number(exam.maxSkips)) {
+      res.status(400);
+      throw new Error(`Skip limit reached. You can skip only ${exam.maxSkips} question(s) in this exam.`);
+    }
+  }
 
   answer.selectedOptionIds = isSkipped ? [] : normalizedSelections;
   answer.visited = visited;

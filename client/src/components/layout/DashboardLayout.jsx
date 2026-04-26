@@ -12,6 +12,7 @@ const adminLinks = [
 
 const userLinks = [
   { to: "/dashboard", label: "Exams" },
+  { to: "/current-affairs", label: "Current Affairs" },
   { to: "/my-results", label: "My Results" }
 ];
 

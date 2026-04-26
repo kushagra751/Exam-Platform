@@ -36,9 +36,14 @@ export const sanitizeExamForCandidate = (exam, questionOrder = []) => {
     subject: examObject.subject,
     topic: examObject.topic,
     playlist: examObject.playlist,
+    examKind: examObject.examKind,
+    language: examObject.language,
+    currentAffairsCategory: examObject.currentAffairsCategory,
+    stateName: examObject.stateName,
     duration: examObject.duration,
     totalMarks: examObject.totalMarks,
     maxAttempts: examObject.maxAttempts,
+    maxSkips: examObject.maxSkips,
     negativeMarking: examObject.negativeMarking,
     startTime: examObject.startTime,
     endTime: examObject.endTime,
@@ -49,6 +54,8 @@ export const sanitizeExamForCandidate = (exam, questionOrder = []) => {
       prompt: question.prompt,
       type: question.type,
       marks: question.marks,
+      eventDate: question.eventDate,
+      currentAffairCategory: question.currentAffairCategory,
       options: question.options.map((option) => ({
         _id: option._id,
         text: option.text

@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import morgan from "morgan";
 import authRoutes from "./routes/authRoutes.js";
+import currentAffairRoutes from "./routes/currentAffairRoutes.js";
 import examRoutes from "./routes/examRoutes.js";
 import resultRoutes from "./routes/resultRoutes.js";
 import { errorHandler, notFound } from "./middleware/errorMiddleware.js";
@@ -50,6 +51,7 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/current-affairs", currentAffairRoutes);
 app.use("/api/exams", examRoutes);
 app.use("/api/results", resultRoutes);
 

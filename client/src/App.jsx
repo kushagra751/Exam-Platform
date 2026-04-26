@@ -23,6 +23,9 @@ const RegisterPage = lazy(() =>
 const ExamAttemptPage = lazy(() =>
   import("./pages/user/ExamAttemptPage").then((module) => ({ default: module.ExamAttemptPage }))
 );
+const CurrentAffairsPage = lazy(() =>
+  import("./pages/user/CurrentAffairsPage").then((module) => ({ default: module.CurrentAffairsPage }))
+);
 const ExamInstructionsPage = lazy(() =>
   import("./pages/user/ExamInstructionsPage").then((module) => ({ default: module.ExamInstructionsPage }))
 );
@@ -63,6 +66,7 @@ const App = () => (
       <Route element={<ProtectedRoute roles={["user"]} />}>
         <Route element={<DashboardLayout />}>
           <Route path="/dashboard" element={<UserDashboardPage />} />
+          <Route path="/current-affairs" element={<CurrentAffairsPage />} />
           <Route path="/my-results" element={<MyResultsPage />} />
         </Route>
       </Route>

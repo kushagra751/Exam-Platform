@@ -11,6 +11,7 @@ Modern full stack exam platform for competitive-test style practice, scheduling,
 - Mobile-first dashboard and attempt screens
 - PWA-ready install flow, browser reminders, offline-safe autosave queue, and exam sharing
 - Detailed result analyzer with score, timing, skips, and attempt behavior
+- Automated Current Affairs generator with daily caching, AI-ready MCQ creation, and India/state flows
 
 ## Showcase
 
@@ -48,6 +49,7 @@ Modern full stack exam platform for competitive-test style practice, scheduling,
 ### User
 - Register and login with email/password
 - Browse published exams by subject and playlist
+- Launch on-demand Current Affairs exams with language, category, timer, and question-count selection
 - Share a specific exam link
 - Set browser reminder for upcoming exams
 - Resume active attempts
@@ -60,6 +62,14 @@ Modern full stack exam platform for competitive-test style practice, scheduling,
 - Tab-switch and fullscreen-exit tracking
 - Auto submit on timer end
 - No-penalty skip option
+
+### Current Affairs Engine
+- Dedicated dashboard entry for Current Affairs
+- Hindi / English setup flow
+- India or state-specific paper generation
+- News API, RSS, and government-feed ingestion
+- AI-ready MCQ generation pipeline with MongoDB caching
+- Exact event date, explanation, and answer review on results
 
 ## Project Structure
 
@@ -94,6 +104,12 @@ PORT=5000
 MONGO_URI=mongodb://127.0.0.1:27017/exam-platform
 JWT_SECRET=your_jwt_secret
 CLIENT_URL=http://localhost:5173
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_BASE_URL=https://api.openai.com/v1
+NEWS_API_KEY=
+GNEWS_API_KEY=
+CURRENTS_API_KEY=
 ```
 
 Example client env:
@@ -152,6 +168,7 @@ VITE_API_BASE_URL=
 - Manual vendor chunking in Vite
 - Offline autosave queue for network drops
 - Reduced noisy health-check logging on server
+- Daily cache reuse for current-affairs generation to avoid rebuilding the same question bank repeatedly
 
 ## Roadmap Ideas
 

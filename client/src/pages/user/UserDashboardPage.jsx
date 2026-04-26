@@ -195,6 +195,21 @@ export const UserDashboardPage = () => {
         {message ? <p className="mt-3 text-sm text-neutral-200">{message}</p> : null}
       </Card>
 
+      <Card className="rounded-[26px] px-4 py-4 sm:px-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted">Current Affairs</p>
+            <h2 className="mt-2 text-lg font-semibold text-white sm:text-xl">Generate a fresh AI-powered current affairs exam</h2>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              Pick language, choose India or a state, set timer and question count, then enter a freshly generated exam.
+            </p>
+          </div>
+          <Link to="/current-affairs" className="block sm:min-w-[180px]">
+            <Button className="w-full">Current Affairs</Button>
+          </Link>
+        </div>
+      </Card>
+
       {loading ? (
         <Loader label="Loading available exams..." />
       ) : error ? (
