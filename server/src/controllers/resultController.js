@@ -85,6 +85,12 @@ export const getResultById = asyncHandler(async (req, res) => {
     throw new Error("You are not allowed to view this result");
   }
 
+  // Never reveal correct answers / explanations while an attempt is still in progress.
+  if (!result.isSubmitted && req.user.role !== "admin") {
+    res.status(403);
+    throw new Error("Results are available after the exam is submitted");
+  }
+
   const exam = result.exam;
 
   const detailedAnswers = exam.questions.map((question) => {

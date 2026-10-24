@@ -16,9 +16,13 @@ import {
   updateExam
 } from "../controllers/examController.js";
 import { authorize, protect } from "../middleware/authMiddleware.js";
+import { validateObjectIdParam } from "../middleware/validateObjectId.js";
 import { upload } from "../middleware/uploadMiddleware.js";
 
 const router = express.Router();
+
+router.param("id", validateObjectIdParam);
+router.param("resultId", validateObjectIdParam);
 
 router.get("/available", protect, authorize("user", "admin"), getAvailableExams);
 router.get("/admin", protect, authorize("admin"), getAdminExams);

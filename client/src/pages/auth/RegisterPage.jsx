@@ -13,7 +13,8 @@ export const RegisterPage = () => {
     name: "",
     email: "",
     password: "",
-    role: "user"
+    role: "user",
+    adminCode: ""
   });
   const [error, setError] = useState("");
 
@@ -46,6 +47,8 @@ export const RegisterPage = () => {
       <form className="mt-8 space-y-4" onSubmit={onSubmit}>
         <Input
           label="Full name"
+          autoComplete="name"
+          required
           placeholder="Your name"
           value={form.name}
           onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
@@ -53,6 +56,8 @@ export const RegisterPage = () => {
         <Input
           label="Email"
           type="email"
+          autoComplete="email"
+          required
           placeholder="name@example.com"
           value={form.email}
           onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
@@ -60,7 +65,10 @@ export const RegisterPage = () => {
         <Input
           label="Password"
           type="password"
-          placeholder="Choose a strong password"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          placeholder="Choose a strong password (min 8 characters)"
           value={form.password}
           onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
         />
@@ -77,7 +85,19 @@ export const RegisterPage = () => {
           </select>
         </label>
 
-        {error ? <p className="rounded-2xl border border-red-200/20 bg-red-950/20 px-4 py-3 text-sm text-red-300">{error}</p> : null}
+        {form.role === "admin" ? (
+          <Input
+            label="Admin signup code"
+            type="password"
+            autoComplete="off"
+            required
+            placeholder="Provided by the platform owner"
+            value={form.adminCode}
+            onChange={(event) => setForm((prev) => ({ ...prev, adminCode: event.target.value }))}
+          />
+        ) : null}
+
+        {error ? <p role="alert" className="rounded-2xl border border-red-200/20 bg-red-950/20 px-4 py-3 text-sm text-red-300">{error}</p> : null}
 
         <Button type="submit" className="w-full" disabled={loading}>
           {loading ? "Creating account..." : "Register"}

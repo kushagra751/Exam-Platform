@@ -42,6 +42,8 @@ export const LoginPage = () => {
         <Input
           label="Email"
           type="email"
+          autoComplete="email"
+          required
           placeholder="name@example.com"
           value={form.email}
           onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
@@ -49,11 +51,13 @@ export const LoginPage = () => {
         <Input
           label="Password"
           type="password"
+          autoComplete="current-password"
+          required
           placeholder="Enter your password"
           value={form.password}
           onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
         />
-        {error ? <p className="rounded-2xl border border-red-200/20 bg-red-950/20 px-4 py-3 text-sm text-red-300">{error}</p> : null}
+        {error ? <p role="alert" className="rounded-2xl border border-red-200/20 bg-red-950/20 px-4 py-3 text-sm text-red-300">{error}</p> : null}
         <Button type="submit" className="w-full" disabled={loading}>
           {loading ? "Signing in..." : "Login"}
         </Button>

@@ -103,6 +103,8 @@ Example server env:
 PORT=5000
 MONGO_URI=mongodb://127.0.0.1:27017/exam-platform
 JWT_SECRET=your_jwt_secret
+ADMIN_SIGNUP_CODE=choose_a_private_code
+NODE_ENV=development
 CLIENT_URL=http://localhost:5173
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
@@ -130,6 +132,8 @@ npm run dev
 npm run build
 ```
 
+> Admin accounts can only be registered with the `ADMIN_SIGNUP_CODE` set on the server. If it is not set, admin self-registration is disabled (create an admin by changing a user\'s `role` in MongoDB).
+
 ## Default URLs
 
 - Frontend: `http://localhost:5173`
@@ -150,6 +154,8 @@ Server:
 ```env
 MONGO_URI=
 JWT_SECRET=
+ADMIN_SIGNUP_CODE=
+NODE_ENV=production
 CLIENT_URL=
 PORT=
 ```

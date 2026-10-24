@@ -295,6 +295,11 @@ export const getExamById = asyncHandler(async (req, res) => {
     return res.json({ ...exam.toObject(), ...getLockState(exam) });
   }
 
+  if (exam.status !== "published") {
+    res.status(404);
+    throw new Error("Exam not found");
+  }
+
   const [submittedAttempts, activeAttempt] = await Promise.all([
     Result.countDocuments({
       exam: exam._id,
@@ -330,7 +335,17 @@ export const updateExam = asyncHandler(async (req, res) => {
     throw new Error("Exam not found");
   }
 
-  const payload = req.body;
+  // Strip fields that must never be set from the client (mass assignment).
+  const {
+    _id: _ignoredId,
+    createdBy: _ignoredCreatedBy,
+    createdAt: _ignoredCreatedAt,
+    updatedAt: _ignoredUpdatedAt,
+    __v: _ignoredVersion,
+    isSystemGenerated: _ignoredSystemGenerated,
+    generatedFromCacheKey: _ignoredCacheKey,
+    ...payload
+  } = req.body;
 
   if (payload.startTime && payload.endTime) {
     validateSchedule(payload.startTime, payload.endTime);
@@ -522,6 +537,11 @@ export const saveAnswer = asyncHandler(async (req, res) => {
     throw new Error("Exam not found");
   }
 
+  if (typeof questionId !== "string" || !Array.isArray(selectedOptionIds)) {
+    res.status(400);
+    throw new Error("Invalid answer payload");
+  }
+
   const answer = result.answers.find((item) => item.questionId.toString() === questionId);
 
   if (!answer) {
@@ -589,6 +609,11 @@ export const submitExam = asyncHandler(async (req, res) => {
   if (!result) {
     res.status(404);
     throw new Error("Attempt not found");
+  }
+
+  if (result.isSubmitted) {
+    // Idempotent: do not re-score or change submittedAt on repeated submit calls.
+    return res.json(result);
   }
 
   const exam = await Exam.findById(result.exam);
@@ -659,7 +684,9 @@ export const importQuestions = asyncHandler(async (req, res) => {
 });
 
 export const reorderExams = asyncHandler(async (req, res) => {
-  const examIds = Array.isArray(req.body.examIds) ? req.body.examIds : [];
+  const examIds = Array.isArray(req.body.examIds)
+    ? req.body.examIds.filter((examId) => mongoose.isValidObjectId(examId))
+    : [];
 
   await Promise.all(
     examIds.map((examId, index) =>

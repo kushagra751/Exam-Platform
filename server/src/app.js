@@ -7,11 +7,15 @@ import currentAffairRoutes from "./routes/currentAffairRoutes.js";
 import examRoutes from "./routes/examRoutes.js";
 import resultRoutes from "./routes/resultRoutes.js";
 import { errorHandler, notFound } from "./middleware/errorMiddleware.js";
+import { createRateLimiter, securityHeaders } from "./middleware/securityMiddleware.js";
 
 dotenv.config();
 
 const app = express();
 app.disable("x-powered-by");
+// Needed on Render/Vercel-style hosts so req.ip reflects the real client (rate limiting).
+app.set("trust proxy", 1);
+app.use(securityHeaders);
 const allowedOrigins = new Set([
   process.env.CLIENT_URL,
   "http://localhost:5173",
@@ -50,7 +54,16 @@ app.get("/api/health", (req, res) => {
   res.json({ message: "API is healthy" });
 });
 
-app.use("/api/auth", authRoutes);
+app.use("/api", createRateLimiter({ windowMs: 60 * 1000, max: 300 }));
+app.use(
+  "/api/auth",
+  createRateLimiter({
+    windowMs: 15 * 60 * 1000,
+    max: 30,
+    message: "Too many authentication attempts, please try again in a few minutes."
+  }),
+  authRoutes
+);
 app.use("/api/current-affairs", currentAffairRoutes);
 app.use("/api/exams", examRoutes);
 app.use("/api/results", resultRoutes);
